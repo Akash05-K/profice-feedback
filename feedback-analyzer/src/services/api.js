@@ -1,0 +1,93 @@
+import axios from "axios";
+
+const API = axios.create({
+  baseURL: "/api/v1",
+  timeout: 30000,
+});
+
+// Response interceptor for data extraction
+API.interceptors.response.use(
+  (response) => response.data,
+  (error) => {
+    const message = error.response?.data?.message || error.message || "An error occurred";
+    return Promise.reject(new Error(message));
+  }
+);
+
+export const api = {
+  // Auth
+  login: (credentials) => API.post("/auth/login", credentials),
+  register: (data) => API.post("/auth/register", data),
+
+  // Upload
+  uploadExcel: (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return API.post("/upload/analyze", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  getUploadSessions: () => API.get("/upload/sessions"),
+
+  // Dashboard
+  getDashboardStats: () => API.get("/dashboard/stats"),
+  getDashboardTrends: () => API.get("/dashboard/trends"),
+  getSentimentDistribution: () => API.get("/dashboard/sentiment"),
+  getTopTopics: () => API.get("/dashboard/topics"),
+  getRecentFeedback: () => API.get("/dashboard/recent"),
+
+  // Feedback Repository
+  getFeedbackRecords: (params) => API.get("/feedback", { params }),
+  getFeedbackStats: () => API.get("/feedback/stats"),
+  getFeedbackFilterOptions: (params) => API.get("/feedback/filter-options", { params }),
+  getFeedbackById: (id) => API.get(`/feedback/${id}`),
+  toggleFeedbackStatus: (id) => API.patch(`/feedback/${id}/toggle-status`),
+  deleteFeedback: (id) => API.delete(`/feedback/${id}`),
+  bulkActionFeedback: (data) => API.post("/feedback/bulk-action", data),
+  exportFeedback: (params) =>
+    API.get("/feedback/export", {
+      params,
+      responseType: "blob",
+    }),
+
+  // Trainers
+  getTrainers: (college) => API.get("/trainers", { params: { college } }),
+  getTrainerMetrics: (id) => API.get(`/trainers/${id}/metrics`),
+
+  // Courses
+  getCourses: (college) => API.get("/courses", { params: { college } }),
+  getCourseMetrics: (id) => API.get(`/courses/${id}/metrics`),
+
+  // Batches
+  getBatches: () => API.get("/batches"),
+  getBatchStats: () => API.get("/batches/stats"),
+
+  // Action Tracker
+  getActions: (params) => API.get("/actions", { params }),
+  getActionStats: () => API.get("/actions/stats"),
+  getActionById: (id) => API.get(`/actions/${id}`),
+  createAction: (data) => API.post("/actions", data),
+  updateAction: (id, data) => API.put(`/actions/${id}`, data),
+  deleteAction: (id) => API.delete(`/actions/${id}`),
+
+  // Notifications
+  getNotifications: (params) => API.get("/notifications", { params }),
+  getNotificationsSummary: () => API.get("/notifications/summary"),
+  toggleNotificationRead: (id) => API.patch(`/notifications/${id}/toggle-read`),
+  markAllNotificationsRead: () => API.post("/notifications/mark-all-read"),
+  deleteNotification: (id) => API.delete(`/notifications/${id}`),
+  createNotification: (data) => API.post("/notifications", data),
+  getNotificationPreferences: () => API.get("/notifications/preferences"),
+  updateNotificationPreferences: (data) => API.put("/notifications/preferences", data),
+
+  // Reports
+  getReportsData: (params) => API.get("/reports/data", { params }),
+  exportReportsPdf: (params) =>
+    API.get("/reports/export/pdf", { params, responseType: "blob" }),
+  exportReportsExcel: (params) =>
+    API.get("/reports/export/excel", { params, responseType: "blob" }),
+  exportReportsCsv: (params) =>
+    API.get("/reports/export/csv", { params, responseType: "blob" }),
+};
+
+export default api;

@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  name         String    @db.VarChar(100)
+  role         UserRole  @default(super_admin)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  notifications           Notification[]
+  notificationPreferences NotificationPreference?
+  uploadSessions          UploadSession[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  super_admin     @map("super_admin")
+  management      @map("management")
+  program_manager @map("program_manager")
+  trainer         @map("trainer")
+  ace_lead        @map("ace_lead")
+}
+
+
+model College {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique @db.VarChar(255)
+  city      String?   @db.VarChar(100)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  trainers        Trainer[]
+  courses         Course[]
+  feedbackRecords FeedbackRecord[]
+
+  @@map("colleges")
+}
+
+model Trainer {
+  id                 Int       @id @default(autoincrement())
+  name               String    @db.VarChar(100)
+  email              String?   @unique @db.VarChar(255)
+  subjectSpecialties Json?     @map("subject_specialties")
+  collegeId          Int       @map("college_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  college         College          @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  batches         Batch[]
+  feedbackRecords FeedbackRecord[]
+  actionItems     ActionItem[]
+
+  @@index([collegeId])
+  @@map("trainers")
+}
+
+model Course {
+  id            Int       @id @default(autoincrement())
+  title         String    @db.VarChar(255)
+  category      String?   @db.VarChar(100)
+  durationWeeks Int?      @map("duration_weeks")
+  collegeId     Int       @map("college_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  college         College          @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  batches         Batch[]
+  feedbackRecords FeedbackRecord[]
+
+  @@index([collegeId])
+  @@map("courses")
+}
+
+model Batch {
+  id            Int       @id @default(autoincrement())
+  batchCode     String    @unique @map("batch_code") @db.VarChar(50)
+  courseId      Int       @map("course_id")
+  trainerId     Int       @map("trainer_id")
+  totalStudents Int       @default(0) @map("total_students")
+  startDate     DateTime? @map("start_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date
+
+  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  trainer         Trainer          @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  feedbackRecords FeedbackRecord[]
+
+  @@index([courseId])
+  @@index([trainerId])
+  @@map("batches")
+}
+
+model FeedbackRecord {
+  id              Int            @id @default(autoincrement())
+  feedbackCode    String         @unique @map("feedback_code") @db.VarChar(20)
+  studentName     String         @map("student_name") @db.VarChar(100)
+  department      String?        @db.VarChar(100)
+  batchId         Int?           @map("batch_id")
+  courseId        Int            @map("course_id")
+  trainerId       Int            @map("trainer_id")
+  collegeId       Int            @map("college_id")
+  rating          Int            @db.TinyInt
+  sentiment       Sentiment
+  feedbackText    String         @map("feedback_text") @db.Text
+  aiKeywords      Json?          @map("ai_keywords")
+  aiConfidence    Float?         @map("ai_confidence")
+  status          FeedbackStatus @default(active)
+  uploadSessionId Int?           @map("upload_session_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  batch         Batch?         @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  trainer       Trainer        @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  college       College        @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  uploadSession UploadSession? @relation(fields: [uploadSessionId], references: [id], onDelete: SetNull)
+
+  @@index([collegeId])
+  @@index([courseId])
+  @@index([trainerId])
+  @@index([batchId])
+  @@index([sentiment])
+  @@index([rating])
+  @@index([status])
+  @@index([createdAt])
+  @@index([uploadSessionId])
+  @@map("feedback_records")
+}
+
+enum Sentiment {
+  positive
+  neutral
+  negative
+}
+
+enum FeedbackStatus {
+  active
+  archived
+}
+
+model ActionItem {
+  id                  Int          @id @default(autoincrement())
+  actionCode          String       @unique @map("action_code") @db.VarChar(20)
+  title               String       @db.VarChar(255)
+  assignedToTrainerId Int          @map("assigned_to_trainer_id")
+  priority            Priority     @default(medium)
+  dueDate             DateTime     @map("due_date") @db.Date
+  status              ActionStatus @default(open)
+  progressPercent     Int          @default(0) @map("progress_percent") @db.TinyInt
+  notes               String?      @db.Text
+  completedAt         DateTime?    @map("completed_at") @db.Date
+  createdAt           DateTime     @default(now()) @map("created_at")
+
+  assignedTo Trainer @relation(fields: [assignedToTrainerId], references: [id], onDelete: Cascade)
+
+  @@index([assignedToTrainerId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@map("action_items")
+}
+
+enum Priority {
+  high
+  medium
+  low
+}
+
+enum ActionStatus {
+  open
+  in_progress @map("in-progress")
+  completed
+  overdue
+}
+
+model Notification {
+  id             Int              @id @default(autoincrement())
+  userId         Int              @map("user_id")
+  type           NotificationType
+  message        String           @db.Text
+  recipientLabel String?          @map("recipient_label") @db.VarChar(100)
+  isRead         Boolean          @default(false) @map("is_read")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  in_app @map("in-app")
+  email
+  alert
+}
+
+model NotificationPreference {
+  id                   Int     @id @default(autoincrement())
+  userId               Int     @unique @map("user_id")
+  emailEnabled         Boolean @default(true) @map("email_enabled")
+  inAppEnabled         Boolean @default(true) @map("in_app_enabled")
+  remindersEnabled     Boolean @default(true) @map("reminders_enabled")
+  weeklySummaryEnabled Boolean @default(true) @map("weekly_summary_enabled")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model UploadSession {
+  id            Int          @id @default(autoincrement())
+  uploadedBy    Int          @map("uploaded_by")
+  filename      String       @db.VarChar(255)
+  totalRows     Int          @default(0) @map("total_rows")
+  processedRows Int          @default(0) @map("processed_rows")
+  status        UploadStatus @default(processing)
+  summary       Json?
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  uploader        User             @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  feedbackRecords FeedbackRecord[]
+
+  @@index([uploadedBy])
+  @@index([status])
+  @@map("upload_sessions")
+}
+
+enum UploadStatus {
+  processing
+  completed
+  failed
+}
