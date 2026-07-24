@@ -1,4 +1,25 @@
 import prisma from "../config/db.js";
+import * as aiService from "./ai.service.js";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Build a REAL month-by-month average-rating trend from feedback rows.
+// Returns chronological [{ month: "Jul 2026", rating }]. One bucket per month that
+// actually has feedback — no fabricated/repeated points.
+export const buildRatingTrend = (records) => {
+  const byMonth = new Map();
+  records.forEach((r) => {
+    const d = new Date(r.createdAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+    if (!byMonth.has(key)) byMonth.set(key, { label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, sum: 0, n: 0 });
+    const b = byMonth.get(key);
+    b.sum += r.rating;
+    b.n += 1;
+  });
+  return Array.from(byMonth.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, v]) => ({ month: v.label, rating: Number((v.sum / v.n).toFixed(2)) }));
+};
 
 export const getTrainerFilterOptions = async (queryParams = {}) => {
   const { college, course } = queryParams;
@@ -105,7 +126,7 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
 
   const records = await prisma.feedbackRecord.findMany({
     where,
-    select: { sentiment: true, aiKeywords: true, feedbackText: true, batchId: true, rating: true },
+    select: { id: true, sentiment: true, aiKeywords: true, feedbackText: true, batchId: true, rating: true, createdAt: true },
   });
 
   const totalReviews = records.length;
@@ -116,7 +137,7 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
       totalReviews: 0,
       satisfaction: 0,
       totalBatches: 0,
-      totalSessions: 0,
+      positiveRate: 0,
       monthlyTrend: [],
       strengths: [],
       weaknesses: [],
@@ -133,7 +154,8 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
   // Count distinct batches matching these records
   const batchIdsSet = new Set(records.map((r) => r.batchId).filter(Boolean));
   const totalBatches = batchIdsSet.size;
-  const totalSessions = totalBatches * 20;
+  // Real metric instead of a fabricated "sessions = batches * 20".
+  const positiveRate = Math.round((records.filter((r) => r.sentiment === "positive").length / totalReviews) * 100);
 
   // Extract strengths and weaknesses from keywords in positive & negative feedback
   const posKeywords = {};
@@ -162,23 +184,28 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
     .slice(0, 3)
     .map(([kw]) => `Improvement needed regarding ${kw}`);
 
+  // Keyword-based output is the graceful fallback; Gemini generates the real insight.
+  const fallbackInsights = {
+    strengths: topPos.length > 0 ? topPos : ["Strong overall student feedback"],
+    weaknesses: topNeg.length > 0 ? topNeg : ["No major negative feedback reported"],
+    recommendations: ["Continue tracking student responses for upcoming batches"],
+  };
+
+  const trainerLabel = trainerId && trainerId !== "overall" ? String(trainerId) : "All trainers";
+  const { strengths, weaknesses, recommendations } = await aiService.generateTrainerInsights(
+    { trainerLabel, records },
+    fallbackInsights
+  );
+
   return {
     overallRating: Number(avgRating.toFixed(1)),
     totalReviews,
     satisfaction,
     totalBatches,
-    totalSessions,
-    monthlyTrend: [
-      { month: "Jan", rating: Number(avgRating.toFixed(1)) },
-      { month: "Feb", rating: Number(avgRating.toFixed(1)) },
-      { month: "Mar", rating: Number(avgRating.toFixed(1)) },
-      { month: "Apr", rating: Number(avgRating.toFixed(1)) },
-      { month: "May", rating: Number(avgRating.toFixed(1)) },
-      { month: "Jun", rating: Number(avgRating.toFixed(1)) },
-      { month: "Jul", rating: Number(avgRating.toFixed(1)) },
-    ],
-    strengths: topPos.length > 0 ? topPos : ["Strong overall student feedback"],
-    weaknesses: topNeg.length > 0 ? topNeg : ["No major negative feedback reported"],
-    recommendations: ["Continue tracking student responses for upcoming batches"],
+    positiveRate,
+    monthlyTrend: buildRatingTrend(records),
+    strengths,
+    weaknesses,
+    recommendations,
   };
 };

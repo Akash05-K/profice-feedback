@@ -8,26 +8,36 @@ import {
   Tooltip,
 } from "recharts";
 
-function RatingTrendChart({ data, series }) {
+function RatingTrendChart({
+  data,
+  series,
+  xKey = "month",
+  domain = [0, 5],
+  ticks = [0, 1, 2, 3, 4, 5],
+  valueFormatter = (v) => v.toFixed(1),
+}) {
+  if (!data || data.length === 0) {
+    return <div className="chart-empty">No data for this selection yet.</div>;
+  }
   return (
     <div>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }} barGap={4}>
           <CartesianGrid vertical={false} stroke="#EEF1F6" />
           <XAxis
-            dataKey="month"
+            dataKey={xKey}
             axisLine={false}
             tickLine={false}
             tick={{ fill: "#6B7280", fontSize: 12, fontFamily: "Inter, sans-serif" }}
             dy={8}
           />
           <YAxis
-            domain={[0, 5]}
-            ticks={[0,1,2,3,4,5]}
+            domain={domain}
+            ticks={ticks}
             axisLine={false}
             tickLine={false}
             tick={{ fill: "#6B7280", fontSize: 12, fontFamily: "Inter, sans-serif" }}
-            width={30}
+            width={34}
           />
           <Tooltip
             cursor={{ fill: "#F8FAFC" }}
@@ -35,10 +45,10 @@ function RatingTrendChart({ data, series }) {
               if (!active || !payload || !payload.length) return null;
               return (
                 <div className="chart-tooltip">
-                  <span className="chart-tooltip__title">{label} 2026</span>
+                  <span className="chart-tooltip__title">{label}</span>
                   {payload.map((entry) => (
                     <span key={entry.dataKey} className="chart-tooltip__value">
-                      {entry.name}: {entry.value.toFixed(1)}
+                      {entry.name}: {valueFormatter(entry.value)}
                     </span>
                   ))}
                 </div>

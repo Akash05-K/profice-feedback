@@ -1,6 +1,6 @@
-const assigneeOptions = ["Karthik S", "Priya N", "Arjun D", "Meera J"];
+const DEFAULT_ASSIGNEES = ["Karthik S", "Priya N", "Arjun D", "Meera J"];
 
-function ActionForm({ value, onChange }) {
+function ActionForm({ value, onChange, assigneeOptions = DEFAULT_ASSIGNEES }) {
   function updateField(field, fieldValue) {
     onChange({ ...value, [field]: fieldValue });
   }

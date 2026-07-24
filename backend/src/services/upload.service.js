@@ -1,6 +1,8 @@
 import prisma from "../config/db.js";
 import { parseExcelOrCsv } from "../utils/fileParser.js";
 import { generateFeedbackCode } from "../utils/codeGenerator.js";
+import * as aiService from "./ai.service.js";
+import { env } from "../config/env.js";
 
 export const processUploadedFile = async (file, userId) => {
   if (!file || !file.buffer) {
@@ -43,6 +45,21 @@ export const processUploadedFile = async (file, userId) => {
   const trainerCache = {};
   const batchCache = {};
 
+  // --- AI pass: classify sentiment + keywords from the feedback TEXT (batched) ---
+  // Falls back per-row to rating/column-based sentiment when the AI is unavailable.
+  const classifyItems = rows.map((row, i) => {
+    const rKey = Object.keys(row).find((k) => k.toLowerCase().includes("rating"));
+    const tKey = Object.keys(row).find(
+      (k) => k.toLowerCase().includes("text") || k.toLowerCase().includes("feedback") || k.toLowerCase().includes("comment")
+    );
+    return {
+      index: i,
+      text: tKey && row[tKey] ? String(row[tKey]) : "",
+      rating: rKey && row[rKey] ? Number(row[rKey]) || 4 : 4,
+    };
+  });
+  const aiClassification = await aiService.classifyFeedbackBatch(classifyItems);
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
 
@@ -77,17 +94,24 @@ export const processUploadedFile = async (file, userId) => {
       rating = Number(row[ratingKey]) || 4;
     }
 
-    // Parse Sentiment
-    let sentiment = "positive";
-    if (sentimentKey && row[sentimentKey]) {
+    // Sentiment: AI text analysis first, then column, then rating-based fallback.
+    const aiResult = aiClassification.get(i);
+    let sentiment;
+    let sentimentSource;
+    if (aiResult) {
+      sentiment = aiResult.sentiment;
+      sentimentSource = "ai";
+    } else if (sentimentKey && row[sentimentKey]) {
       const val = String(row[sentimentKey]).toLowerCase();
       if (val.includes("pos")) sentiment = "positive";
       else if (val.includes("neg")) sentiment = "negative";
       else sentiment = "neutral";
+      sentimentSource = "column";
     } else {
       if (rating >= 4) sentiment = "positive";
       else if (rating === 3) sentiment = "neutral";
       else sentiment = "negative";
+      sentimentSource = "rating";
     }
 
     if (sentiment === "positive") positive++;
@@ -162,10 +186,19 @@ export const processUploadedFile = async (file, userId) => {
 
     const code = generateFeedbackCode(existingCount + i);
 
-    // Extract quick keywords from text
-    const textWords = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-    const stopWords = new Set(["with", "this", "that", "from", "have", "were", "very", "good", "more", "some", "they"]);
-    const extractedKw = Array.from(new Set(textWords.filter((w) => !stopWords.has(w)))).slice(0, 4);
+    // Keywords: AI-extracted when available, else a naive text extraction fallback.
+    let keywords;
+    if (aiResult && aiResult.keywords.length > 0) {
+      keywords = aiResult.keywords;
+    } else {
+      const textWords = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+      const stopWords = new Set(["with", "this", "that", "from", "have", "were", "very", "good", "more", "some", "they"]);
+      const extractedKw = Array.from(new Set(textWords.filter((w) => !stopWords.has(w)))).slice(0, 4);
+      keywords = extractedKw.length > 0 ? extractedKw : ["teaching", "explanation", "practical"];
+    }
+
+    // Confidence reflects how the sentiment was derived (AI text analysis is highest).
+    const confidence = sentimentSource === "ai" ? 0.95 : sentimentSource === "column" ? 0.8 : 0.6;
 
     await prisma.feedbackRecord.create({
       data: {
@@ -179,8 +212,8 @@ export const processUploadedFile = async (file, userId) => {
         rating,
         sentiment,
         feedbackText: text,
-        aiKeywords: extractedKw.length > 0 ? extractedKw : ["teaching", "explanation", "practical"],
-        aiConfidence: 0.94,
+        aiKeywords: keywords,
+        aiConfidence: confidence,
         status: "active",
         uploadSessionId: uploadSession.id,
       },
@@ -271,12 +304,15 @@ export const getUploadSessionAnalysis = async (sessionId) => {
   let positive = 0;
   let neutral = 0;
   let negative = 0;
+  let confidenceSum = 0;
   const keywordMap = {};
 
   records.forEach((r) => {
     if (r.sentiment === "positive") positive++;
     else if (r.sentiment === "negative") negative++;
     else neutral++;
+
+    confidenceSum += typeof r.aiConfidence === "number" ? r.aiConfidence : 0;
 
     const kws = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
     kws.forEach((kw) => {
@@ -300,13 +336,26 @@ export const getUploadSessionAnalysis = async (sessionId) => {
     .slice(0, 10)
     .map(([text, count]) => ({ text, count }));
 
-  const actions = negative > 0
+  const fallbackActions = negative > 0
     ? [
         "Address newly reported doubt clearing bottlenecks in this upload",
         "Optimize lab timing schedule due to student comments",
         "Review course speed pace for beginners",
       ]
     : ["Maintain current teaching methodology", "Share positive feedback with department head"];
+
+  const fallbackSummary =
+    total === 0
+      ? "No feedback records were found in this file."
+      : `This file contains ${total} feedback records: ${positive} positive, ${neutral} neutral and ${negative} negative.`;
+
+  // Gemini generates the real summary + actions; falls back to the rule-based output.
+  const { summary, actions } = await aiService.generateSessionInsights(
+    { filename: session.filename, records, counts: { positive, neutral, negative, total } },
+    { summary: fallbackSummary, actions: fallbackActions }
+  );
+
+  const avgConfidence = total > 0 ? Math.round((confidenceSum / total) * 1000) / 10 : 0;
 
   return {
     sessionId: session.id,
@@ -315,7 +364,10 @@ export const getUploadSessionAnalysis = async (sessionId) => {
     analyzedCount: total.toLocaleString(),
     sentimentData,
     keywords,
+    summary,
     actions,
+    aiConfidence: { value: `${avgConfidence}%`, label: avgConfidence >= 85 ? "High Confidence" : "Moderate Confidence" },
+    model: aiService.isAiEnabled() ? env.GEMINI_MODEL : "keyword-fallback",
   };
 };
 

@@ -1,4 +1,6 @@
 import prisma from "../config/db.js";
+import * as aiService from "./ai.service.js";
+import { buildRatingTrend } from "./trainers.service.js";
 
 export const getCourseFilterOptions = async (queryParams = {}) => {
   const { college } = queryParams;
@@ -95,7 +97,7 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
 
   const records = await prisma.feedbackRecord.findMany({
     where,
-    select: { rating: true, sentiment: true, aiKeywords: true, batchId: true },
+    select: { id: true, rating: true, sentiment: true, aiKeywords: true, feedbackText: true, batchId: true, createdAt: true },
   });
 
   const totalReviews = records.length;
@@ -103,8 +105,8 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
   if (totalReviews === 0) {
     return {
       courseRating: 0,
-      contentRating: 0,
-      practicalRating: 0,
+      satisfactionRate: 0,
+      positiveRate: 0,
       enrolledStudents: 0,
       monthlyTrend: [],
       improvementSuggestions: [],
@@ -113,6 +115,8 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
 
   const sumRating = records.reduce((acc, r) => acc + r.rating, 0);
   const ratingVal = Number((sumRating / totalReviews).toFixed(1));
+  const satisfactionRate = Math.round((records.filter((r) => r.rating >= 3).length / totalReviews) * 100);
+  const positiveRate = Math.round((records.filter((r) => r.sentiment === "positive").length / totalReviews) * 100);
 
   // Extract negative keywords for improvement suggestions
   const negMap = {};
@@ -131,20 +135,22 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
     .slice(0, 3)
     .map(([kw]) => `Focus on resolving student feedback regarding ${kw}`);
 
+  const fallbackSuggestions =
+    topNeg.length > 0 ? topNeg : ["No critical improvement suggestions for this selection."];
+
+  const courseLabel = courseId && courseId !== "overall" ? String(courseId) : "All courses";
+  const { improvementSuggestions } = await aiService.generateCourseSuggestions(
+    { courseLabel, records },
+    { improvementSuggestions: fallbackSuggestions }
+  );
+
   return {
     courseRating: ratingVal,
-    contentRating: ratingVal,
-    practicalRating: ratingVal,
+    satisfactionRate,
+    positiveRate,
     enrolledStudents: totalReviews,
-    monthlyTrend: [
-      { month: "Jan", course: ratingVal, content: ratingVal, practical: ratingVal },
-      { month: "Feb", course: ratingVal, content: ratingVal, practical: ratingVal },
-      { month: "Mar", course: ratingVal, content: ratingVal, practical: ratingVal },
-      { month: "Apr", course: ratingVal, content: ratingVal, practical: ratingVal },
-      { month: "May", course: ratingVal, content: ratingVal, practical: ratingVal },
-      { month: "Jun", course: ratingVal, content: ratingVal, practical: ratingVal },
-      { month: "Jul", course: ratingVal, content: ratingVal, practical: ratingVal },
-    ],
-    improvementSuggestions: topNeg.length > 0 ? topNeg : ["No critical improvement suggestions for this selection."],
+    // Real month-by-month average-rating trend (single, honest series).
+    monthlyTrend: buildRatingTrend(records),
+    improvementSuggestions,
   };
 };

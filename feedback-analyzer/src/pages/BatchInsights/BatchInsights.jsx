@@ -4,20 +4,19 @@ import StatCard from "../../components/cards/StatCard";
 import MetricComparisonChart from "../../components/charts/MetricComparisonChart";
 import RankedTopicList from "../../components/widgets/RankedTopicList";
 import api from "../../services/api";
-import { batches as fallbackBatches } from "../../data/batchInsightsData";
 
 const comparisonSeries = [
-  { key: "completionRate", label: "Completion Rate", color: "#6a8ad0" },
-  { key: "participationRate", label: "Participation Rate", color: "#afd9bf" },
+  { key: "satisfactionRate", label: "Satisfaction (≥3★)", color: "#6a8ad0" },
+  { key: "positiveRate", label: "Positive Sentiment", color: "#afd9bf" },
 ];
 
 function BatchInsights() {
-  const [batchesList, setBatchesList] = useState(fallbackBatches);
+  const [batchesList, setBatchesList] = useState([]);
   const [batchStats, setBatchStats] = useState({
-    totalBatches: fallbackBatches.length,
-    totalStudents: fallbackBatches.reduce((sum, b) => sum + b.totalStudents, 0),
-    avgCompletion: Math.round(fallbackBatches.reduce((sum, b) => sum + b.completionRate, 0) / fallbackBatches.length),
-    avgParticipation: Math.round(fallbackBatches.reduce((sum, b) => sum + b.participationRate, 0) / fallbackBatches.length),
+    totalBatches: 0,
+    totalResponses: 0,
+    avgSatisfaction: 0,
+    avgPositive: 0,
   });
 
   useEffect(() => {
@@ -39,9 +38,9 @@ function BatchInsights() {
 
   const statCards = [
     { id: "total-batches", label: "Total Batches", value: String(batchStats.totalBatches), icon: "bi-collection-fill", tone: "violet" },
-    { id: "total-students", label: "Total Students", value: String(batchStats.totalStudents), icon: "bi-people-fill", tone: "blue" },
-    { id: "avg-completion", label: "Avg Completion Rate", value: String(batchStats.avgCompletion), valueSuffix: "%", icon: "bi-check-circle-fill", tone: "green" },
-    { id: "avg-participation", label: "Avg Participation", value: String(batchStats.avgParticipation), valueSuffix: "%", icon: "bi-bar-chart-fill", tone: "amber" },
+    { id: "total-responses", label: "Total Responses", value: String(batchStats.totalResponses), icon: "bi-people-fill", tone: "blue" },
+    { id: "avg-satisfaction", label: "Avg Satisfaction", value: String(batchStats.avgSatisfaction), valueSuffix: "%", icon: "bi-check-circle-fill", tone: "green" },
+    { id: "avg-positive", label: "Avg Positive Sentiment", value: String(batchStats.avgPositive), valueSuffix: "%", icon: "bi-emoji-smile-fill", tone: "amber" },
   ];
 
   const ranking = [...batchesList]
@@ -49,7 +48,7 @@ function BatchInsights() {
     .map((batch, index) => ({
       rank: index + 1,
       label: `${batch.name} · ${batch.course}`,
-      value: batch.overallScore || 80,
+      value: batch.overallScore || 0,
     }));
 
   return (

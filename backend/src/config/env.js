@@ -8,4 +8,11 @@ export const env = {
   JWT_SECRET: process.env.JWT_SECRET || "my_secret_key",
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
   NODE_ENV: process.env.NODE_ENV || "development",
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
+  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-flash-lite-latest",
 };
+
+// Never sign tokens with a publicly-known fallback secret in production.
+if (env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET must be set in production.");
+}

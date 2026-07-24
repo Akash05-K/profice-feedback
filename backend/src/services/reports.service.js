@@ -7,7 +7,7 @@ export const getReportsData = async (queryParams) => {
   const records = result.data;
 
   // Build Prisma where clause for full unpaginated KPIs
-  const { college, course, trainer, startDate, endDate, search } = queryParams;
+  const { college, course, trainer, sentiment, rating, student, startDate, endDate, search } = queryParams;
   const where = { status: "active" };
 
   if (college && college !== "all" && college !== "All Colleges") {
@@ -18,6 +18,15 @@ export const getReportsData = async (queryParams) => {
   }
   if (trainer && trainer !== "all" && trainer !== "All Trainers") {
     where.trainer = { name: trainer };
+  }
+  if (sentiment && sentiment !== "all") {
+    where.sentiment = sentiment;
+  }
+  if (rating && rating !== "all") {
+    where.rating = parseInt(rating, 10);
+  }
+  if (student && student.trim()) {
+    where.studentName = { contains: student.trim() };
   }
   if (startDate || endDate) {
     where.createdAt = {};
@@ -56,9 +65,16 @@ export const getReportsData = async (queryParams) => {
     });
     satisfaction = Math.round((satisfiedCount / total) * 100);
 
-    posCount = await prisma.feedbackRecord.count({ where: { ...where, sentiment: "positive" } });
-    neuCount = await prisma.feedbackRecord.count({ where: { ...where, sentiment: "neutral" } });
-    negCount = await prisma.feedbackRecord.count({ where: { ...where, sentiment: "negative" } });
+    // With a sentiment filter active every matching record is that sentiment,
+    // so counting the other two would overshoot the filtered total.
+    const countBySentiment = async (value) => {
+      if (where.sentiment) return where.sentiment === value ? total : 0;
+      return prisma.feedbackRecord.count({ where: { ...where, sentiment: value } });
+    };
+
+    posCount = await countBySentiment("positive");
+    neuCount = await countBySentiment("neutral");
+    negCount = await countBySentiment("negative");
 
     positivePercent = Math.round((posCount / total) * 100);
   }

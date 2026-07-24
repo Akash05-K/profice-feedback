@@ -1,45 +1,27 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "react-toastify";
 import AppLayout from "../../components/layout/AppLayout";
 import StatCard from "../../components/cards/StatCard";
-import SearchInput from "../../components/common/SearchInput";
-import SelectDropdown from "../../components/common/SelectDropdown";
-import FeedbackTable from "../../components/tables/FeedbackTable";
+import DataTable from "../../components/tables/DataTable";
 import Pagination from "../../components/widgets/Pagination";
 import api from "../../services/api";
 
 const sentimentOptions = [
-  { value: "all", label: "All Sentiments" },
   { value: "positive", label: "Positive" },
   { value: "neutral", label: "Neutral" },
   { value: "negative", label: "Negative" },
 ];
 
-const ratingOptions = [
-  { value: "all", label: "All Ratings" },
-  { value: "5", label: "5 Stars" },
-  { value: "4", label: "4 Stars" },
-  { value: "3", label: "3 Stars" },
-  { value: "2", label: "2 Stars" },
-  { value: "1", label: "1 Star" },
-];
+const ratingOptions = [5, 4, 3, 2, 1].map((n) => ({
+  value: String(n),
+  label: `${n} Star${n > 1 ? "s" : ""}`,
+}));
 
-const sortOptions = [
-  { value: "newest", label: "Newest First" },
-  { value: "oldest", label: "Oldest First" },
-  { value: "student-asc", label: "Student: A to Z" },
-  { value: "student-desc", label: "Student: Z to A" },
-  { value: "college-asc", label: "College: A to Z" },
-  { value: "college-desc", label: "College: Z to A" },
-  { value: "course-asc", label: "Course: A to Z" },
-  { value: "course-desc", label: "Course: Z to A" },
-  { value: "trainer-asc", label: "Trainer: A to Z" },
-  { value: "trainer-desc", label: "Trainer: Z to A" },
-  { value: "rating-high", label: "Rating: High to Low" },
-  { value: "rating-low", label: "Rating: Low to High" },
-  { value: "sentiment-asc", label: "Sentiment: Positive First" },
-  { value: "sentiment-desc", label: "Sentiment: Negative First" },
-];
+const sentimentBadge = {
+  positive: { label: "Positive", tone: "green" },
+  neutral: { label: "Neutral", tone: "amber" },
+  negative: { label: "Negative", tone: "red" },
+};
 
 const statusTabs = [
   { value: "active", label: "Active" },
@@ -78,19 +60,12 @@ function FeedbackRepository() {
   });
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [collegeFilter, setCollegeFilter] = useState("All Colleges");
-  const [courseFilter, setCourseFilter] = useState("All Courses");
-  const [trainerFilter, setTrainerFilter] = useState("All Trainers");
+  const [filters, setFilters] = useState({});
+  const [sort, setSort] = useState(null);
 
-  const [availableColleges, setAvailableColleges] = useState(["All Colleges"]);
-  const [availableCourses, setAvailableCourses] = useState(["All Courses"]);
-  const [availableTrainers, setAvailableTrainers] = useState(["All Trainers"]);
-
-  const [sentimentFilter, setSentimentFilter] = useState("all");
-  const [ratingFilter, setRatingFilter] = useState("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [sortBy, setSortBy] = useState("newest");
+  const [collegeOptions, setCollegeOptions] = useState([]);
+  const [courseOptions, setCourseOptions] = useState([]);
+  const [trainerOptions, setTrainerOptions] = useState([]);
 
   const [statusView, setStatusView] = useState("active");
   const [selectedIds, setSelectedIds] = useState([]);
@@ -103,22 +78,42 @@ function FeedbackRepository() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState(null);
 
+  // Every column filter maps to a server query param so paging stays correct.
+  const queryParams = useMemo(
+    () => ({
+      student: filters.student || undefined,
+      college: filters.college || undefined,
+      course: filters.course || undefined,
+      trainer: filters.trainer || undefined,
+      rating: filters.rating || undefined,
+      sentiment: filters.sentiment || undefined,
+      text: filters.text || undefined,
+      startDate: filters.date?.from || undefined,
+      endDate: filters.date?.to || undefined,
+      sortBy: sort ? `${sort.key}-${sort.dir}` : "newest",
+    }),
+    [filters, sort]
+  );
+
   // Load filter options dynamically
   const loadFilterOptions = useCallback(async () => {
     try {
       const res = await api.getFeedbackFilterOptions({
-        college: collegeFilter,
-        course: courseFilter,
+        college: filters.college || undefined,
+        course: filters.course || undefined,
       });
-      if (res.data) {
-        setAvailableColleges(res.data.colleges || ["All Colleges"]);
-        setAvailableCourses(res.data.courses || ["All Courses"]);
-        setAvailableTrainers(res.data.trainers || ["All Trainers"]);
-      }
+      if (!res.data) return;
+
+      const toOptions = (list, allLabel) =>
+        (list || []).filter((item) => item !== allLabel).map((item) => ({ value: item, label: item }));
+
+      setCollegeOptions(toOptions(res.data.colleges, "All Colleges"));
+      setCourseOptions(toOptions(res.data.courses, "All Courses"));
+      setTrainerOptions(toOptions(res.data.trainers, "All Trainers"));
     } catch (e) {
       console.error("Filter options fetch error:", e);
     }
-  }, [collegeFilter, courseFilter]);
+  }, [filters.college, filters.course]);
 
   useEffect(() => {
     loadFilterOptions();
@@ -131,15 +126,8 @@ function FeedbackRepository() {
     try {
       const [recordsRes, statsRes] = await Promise.all([
         api.getFeedbackRecords({
-          college: collegeFilter,
-          course: courseFilter,
-          trainer: trainerFilter,
-          sentiment: sentimentFilter,
-          rating: ratingFilter,
+          ...queryParams,
           search: searchTerm,
-          startDate,
-          endDate,
-          sortBy,
           status: statusView,
           page: currentPage,
           limit: PAGE_SIZE,
@@ -162,44 +150,29 @@ function FeedbackRepository() {
     } finally {
       setIsLoading(false);
     }
-  }, [
-    collegeFilter,
-    courseFilter,
-    trainerFilter,
-    sentimentFilter,
-    ratingFilter,
-    searchTerm,
-    startDate,
-    endDate,
-    sortBy,
-    statusView,
-    currentPage,
-  ]);
+  }, [queryParams, searchTerm, statusView, currentPage]);
 
   useEffect(() => {
     fetchRecords();
   }, [fetchRecords]);
 
-  // Cascading step-by-step filter handlers
-  const handleCollegeChange = (val) => {
-    setCollegeFilter(val);
-    setCourseFilter("All Courses");
-    setTrainerFilter("All Trainers");
+  // Narrowing a parent filter invalidates the ones scoped beneath it.
+  const handleFiltersChange = (next) => {
+    const cleaned = { ...next };
+    if (cleaned.college !== filters.college) {
+      delete cleaned.course;
+      delete cleaned.trainer;
+    } else if (cleaned.course !== filters.course) {
+      delete cleaned.trainer;
+    }
+    setFilters(cleaned);
     setCurrentPage(1);
     setSelectedIds([]);
   };
 
-  const handleCourseChange = (val) => {
-    setCourseFilter(val);
-    setTrainerFilter("All Trainers");
+  const handleSortChange = (next) => {
+    setSort(next);
     setCurrentPage(1);
-    setSelectedIds([]);
-  };
-
-  const handleTrainerChange = (val) => {
-    setTrainerFilter(val);
-    setCurrentPage(1);
-    setSelectedIds([]);
   };
 
   const statCards = [
@@ -210,17 +183,16 @@ function FeedbackRepository() {
     { id: "avg-rating", label: "Average Rating", value: String(stats.avgRating), valueSuffix: "/ 5", icon: "bi-star-fill", tone: "amber" },
   ];
 
-  function updateCommonFilter(setter) {
-    return (value) => {
-      setter(value);
-      setCurrentPage(1);
-      setSelectedIds([]);
-    };
+  function handleSearchChange(value) {
+    setSearchTerm(value);
+    setCurrentPage(1);
+    setSelectedIds([]);
   }
 
-  function handleSortChange(field) {
-    setSortBy((prev) => (prev === `${field}-asc` ? `${field}-desc` : `${field}-asc`));
+  function handleStatusViewChange(value) {
+    setStatusView(value);
     setCurrentPage(1);
+    setSelectedIds([]);
   }
 
   function toggleSelect(id) {
@@ -294,25 +266,6 @@ function FeedbackRepository() {
     }
   }
 
-  function markSelectedAsReviewed() {
-    toast.success(`Marked ${selectedIds.length} feedback records as reviewed.`);
-    setSelectedIds([]);
-  }
-
-  function handleResetFilters() {
-    setSearchTerm("");
-    setCollegeFilter("All Colleges");
-    setCourseFilter("All Courses");
-    setTrainerFilter("All Trainers");
-    setSentimentFilter("all");
-    setRatingFilter("all");
-    setStartDate("");
-    setEndDate("");
-    setSortBy("newest");
-    setCurrentPage(1);
-    setSelectedIds([]);
-  }
-
   // Upload History functions
   const loadUploadSessions = useCallback(async () => {
     setIsLoadingSessions(true);
@@ -327,6 +280,12 @@ function FeedbackRepository() {
       setIsLoadingSessions(false);
     }
   }, []);
+
+  // Prefetch once on mount so the "Upload History" tab badge is accurate,
+  // then refresh whenever that tab is active.
+  useEffect(() => {
+    loadUploadSessions();
+  }, [loadUploadSessions]);
 
   useEffect(() => {
     if (statusView === "uploads") {
@@ -353,101 +312,207 @@ function FeedbackRepository() {
     }
   }
 
+  const feedbackColumns = useMemo(
+    () => [
+      {
+        key: "student",
+        label: "Student Name",
+        filter: { type: "text", placeholder: "Student name contains…" },
+        cellStyle: { fontWeight: 600, color: "var(--color-text-primary)" },
+      },
+      {
+        key: "college",
+        label: "College",
+        filter: { type: "select", options: collegeOptions, anyLabel: "All Colleges" },
+        render: (row) => row.college || "—",
+      },
+      {
+        key: "course",
+        label: "Course We Provide",
+        filter: { type: "select", options: courseOptions, anyLabel: "All Courses" },
+        render: (row) => row.subject || row.course,
+      },
+      {
+        key: "trainer",
+        label: "Trainer",
+        filter: { type: "select", options: trainerOptions, anyLabel: "All Trainers" },
+      },
+      {
+        key: "rating",
+        label: "Rating",
+        filter: { type: "select", options: ratingOptions, anyLabel: "All Ratings" },
+        render: (row) => <StarRating rating={row.rating} />,
+      },
+      {
+        key: "sentiment",
+        label: "Sentiment",
+        filter: { type: "select", options: sentimentOptions, anyLabel: "All Sentiments" },
+        render: (row) => {
+          const meta = sentimentBadge[row.sentiment] || sentimentBadge.neutral;
+          return <span className={`badge-pill badge-pill--${meta.tone}`}>{meta.label}</span>;
+        },
+      },
+      {
+        key: "text",
+        label: "Feedback Preview",
+        filter: { type: "text", label: "Feedback text", placeholder: "Feedback contains…" },
+        cellStyle: {
+          color: "var(--color-text-secondary)",
+          fontStyle: "italic",
+          fontSize: "0.85rem",
+          maxWidth: "260px",
+        },
+        render: (row) => `"${(row.text || "").slice(0, 60)}…"`,
+      },
+      {
+        key: "date",
+        label: "Submitted Date",
+        filter: { type: "date" },
+      },
+      {
+        key: "status",
+        label: "Status",
+        // Status is driven by the Active / Archived tabs above the table.
+        render: (row) => (
+          <span
+            className={`status-pill ${row.status === "archived" ? "status-pill--archived" : "status-pill--active"}`}
+          >
+            {row.status === "archived" ? "Archived" : "Active"}
+          </span>
+        ),
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        sortable: false,
+        headerClassName: "data-table__actions-col",
+        render: (row) => (
+          <div className="data-table__actions">
+            <button
+              type="button"
+              className="table-icon-btn"
+              aria-label="View feedback"
+              onClick={(event) => {
+                event.stopPropagation();
+                setActiveViewFeedback(row);
+              }}
+            >
+              <i className="bi bi-eye" />
+            </button>
+            <button
+              type="button"
+              className="table-icon-btn"
+              aria-label={row.status === "archived" ? "Restore feedback" : "Archive feedback"}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleArchive(row.id);
+              }}
+            >
+              <i className={`bi ${row.status === "archived" ? "bi-arrow-counterclockwise" : "bi-archive"}`} />
+            </button>
+            <button
+              type="button"
+              className="table-icon-btn"
+              aria-label="Delete feedback"
+              style={{ color: "var(--color-danger)" }}
+              onClick={(event) => {
+                event.stopPropagation();
+                deleteRow(row.id);
+              }}
+            >
+              <i className="bi bi-trash" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [collegeOptions, courseOptions, trainerOptions]
+  );
+
+  const uploadColumns = useMemo(
+    () => [
+      {
+        key: "filename",
+        label: "Filename",
+        filter: { type: "text", placeholder: "Filename contains…" },
+        render: (row) => (
+          <div className="d-flex align-items-center gap-2">
+            <i className="bi bi-file-earmark-spreadsheet-fill" style={{ color: "#16A34A", fontSize: "1.1rem" }} />
+            <span className="fw-semibold text-dark">{row.filename}</span>
+          </div>
+        ),
+      },
+      {
+        key: "createdAt",
+        label: "Upload Date",
+        sortType: "date",
+        filter: { type: "date", label: "Upload date" },
+        className: "text-muted",
+        render: (row) =>
+          new Date(row.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+      },
+      {
+        key: "uploadTime",
+        label: "Upload Time",
+        accessor: (row) => new Date(row.createdAt).getTime(),
+        sortType: "number",
+        className: "text-muted",
+        render: (row) =>
+          new Date(row.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }),
+      },
+      {
+        key: "totalRows",
+        label: "Total Rows",
+        sortType: "number",
+        filter: { type: "number", label: "Total rows" },
+        render: (row) => (
+          <span className="badge bg-light text-dark border" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
+            {row.totalRows || 0} records
+          </span>
+        ),
+      },
+      {
+        key: "status",
+        label: "Status",
+        accessor: (row) => row.status || "completed",
+        filter: { type: "select" },
+        render: (row) => (
+          <span className="badge-pill badge-pill--green" style={{ fontSize: "0.75rem" }}>
+            {row.status || "completed"}
+          </span>
+        ),
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        sortable: false,
+        headerClassName: "data-table__actions-col",
+        render: (row) => (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 rounded-pill px-3"
+            style={{ fontSize: "0.75rem", fontWeight: 600 }}
+            onClick={() => handleDeleteSession(row.id, row.filename)}
+            disabled={deletingSessionId === row.id}
+          >
+            {deletingSessionId === row.id ? (
+              <><div className="spinner-border spinner-border-sm" role="status" /> Deleting...</>
+            ) : (
+              <><i className="bi bi-trash" /> Delete</>
+            )}
+          </button>
+        ),
+      },
+    ],
+    [deletingSessionId]
+  );
+
   return (
     <AppLayout title="Feedback Repository">
       <div className="stat-card-grid">
         {statCards.map((card) => (
           <StatCard key={card.id} {...card} />
         ))}
-      </div>
-
-      <div className="panel repository-toolbar" style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "stretch" }}>
-        {/* Row 1: Search & Primary Cascading Filters */}
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", width: "100%" }}>
-          <div style={{ minWidth: "240px", flex: "1 1 260px", maxWidth: "320px" }}>
-            <SearchInput
-              value={searchTerm}
-              onChange={updateCommonFilter(setSearchTerm)}
-              placeholder="Search student, trainer, course..."
-            />
-          </div>
-
-          <SelectDropdown
-            icon="bi-building"
-            value={collegeFilter}
-            onChange={handleCollegeChange}
-            options={availableColleges.map((col) => ({ value: col, label: col }))}
-          />
-
-          <SelectDropdown
-            icon="bi-mortarboard-fill"
-            value={courseFilter}
-            onChange={handleCourseChange}
-            options={availableCourses.map((c) => ({
-              value: c,
-              label: c === "All Courses" ? "All Courses We Provide" : c,
-            }))}
-          />
-
-          <SelectDropdown
-            icon="bi-person"
-            value={trainerFilter}
-            onChange={handleTrainerChange}
-            options={availableTrainers.map((tr) => ({ value: tr, label: tr }))}
-          />
-        </div>
-
-        {/* Row 2: Sentiment Filter -> Rating Filter -> Sorting Filter -> Date Filter */}
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", width: "100%" }}>
-          <SelectDropdown
-            value={sentimentFilter}
-            onChange={updateCommonFilter(setSentimentFilter)}
-            options={sentimentOptions}
-          />
-
-          <SelectDropdown
-            icon="bi-star"
-            value={ratingFilter}
-            onChange={updateCommonFilter(setRatingFilter)}
-            options={ratingOptions}
-          />
-
-          <SelectDropdown
-            icon="bi-sort-down"
-            value={sortBy}
-            onChange={updateCommonFilter(setSortBy)}
-            options={sortOptions}
-          />
-
-          <div className="d-flex align-items-center gap-2 border rounded-pill px-3 bg-white" style={{ height: "38px", borderColor: "var(--color-input-border)", background: "var(--color-bg-page)" }}>
-            <span className="text-secondary" style={{ fontSize: "0.78rem", fontWeight: 500 }}>From:</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => updateCommonFilter(setStartDate)(e.target.value)}
-              className="border-0 bg-transparent text-dark p-0"
-              style={{ fontSize: "0.8rem", outline: "none" }}
-            />
-            <span className="text-secondary" style={{ fontSize: "0.78rem", fontWeight: 500 }}>To:</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => updateCommonFilter(setEndDate)(e.target.value)}
-              className="border-0 bg-transparent text-dark p-0"
-              style={{ fontSize: "0.8rem", outline: "none" }}
-            />
-          </div>
-
-          <button
-            type="button"
-            className="btn btn-outline-secondary d-flex align-items-center gap-2 rounded-pill px-3"
-            style={{ fontSize: "0.82rem", fontWeight: "600", height: "38px", border: "1px solid var(--color-input-border)", background: "var(--color-bg-card)" }}
-            onClick={handleResetFilters}
-          >
-            <i className="bi bi-arrow-counterclockwise" />
-            <span>Reset Filters</span>
-          </button>
-        </div>
       </div>
 
       <div className="repository-tabs">
@@ -457,7 +522,7 @@ function FeedbackRepository() {
               key={tab.value}
               type="button"
               className={`repository-tabs__tab ${statusView === tab.value ? "repository-tabs__tab--active" : ""}`}
-              onClick={() => updateCommonFilter(setStatusView)(tab.value)}
+              onClick={() => handleStatusViewChange(tab.value)}
             >
               {tab.label}
               <span className="repository-tabs__count">
@@ -474,8 +539,8 @@ function FeedbackRepository() {
             </span>
             <button
               type="button"
-              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 rounded-pill px-3"
-              style={{ fontSize: "0.75rem", fontWeight: "600", border: "1px solid #ccc" }}
+              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 rounded-pill px-3"
+              style={{ fontSize: "0.75rem", fontWeight: "600" }}
               onClick={archiveSelected}
             >
               <i className="bi bi-archive" />
@@ -483,16 +548,7 @@ function FeedbackRepository() {
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1.5 rounded-pill px-3"
-              style={{ fontSize: "0.75rem", fontWeight: "600", border: "1px solid #ccc" }}
-              onClick={markSelectedAsReviewed}
-            >
-              <i className="bi bi-check-circle" />
-              <span>Mark Reviewed</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-success d-flex align-items-center gap-1.5 rounded-pill px-3"
+              className="btn btn-sm btn-outline-success d-flex align-items-center gap-2 rounded-pill px-3"
               style={{ fontSize: "0.75rem", fontWeight: "600" }}
               onClick={exportSelected}
             >
@@ -501,7 +557,7 @@ function FeedbackRepository() {
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1.5 rounded-pill px-3"
+              className="btn btn-sm btn-outline-danger d-flex align-items-center gap-2 rounded-pill px-3"
               style={{ fontSize: "0.75rem", fontWeight: "600" }}
               onClick={deleteSelected}
             >
@@ -514,107 +570,63 @@ function FeedbackRepository() {
 
       {statusView === "uploads" ? (
         /* ── Upload History Tab ── */
-        <div className="panel repository-table-panel">
-          {isLoadingSessions ? (
-            <div className="p-5 text-center text-muted">
-              <div className="spinner-border text-primary me-2" role="status" />
-              <span>Loading upload history...</span>
-            </div>
-          ) : uploadSessions.length === 0 ? (
-            <div className="p-5 text-center text-muted">
-              <i className="bi bi-cloud-upload" style={{ fontSize: "3rem", opacity: 0.3 }} />
-              <p className="mt-3" style={{ fontSize: "0.95rem" }}>No Excel files have been uploaded yet.</p>
-              <p style={{ fontSize: "0.85rem" }}>Upload a feedback Excel file from the <strong>AI Analysis</strong> page.</p>
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0" style={{ fontSize: "0.85rem" }}>
-                <thead className="table-light">
-                  <tr>
-                    <th style={{ width: "40px" }}>#</th>
-                    <th><i className="bi bi-file-earmark-excel me-1" />Filename</th>
-                    <th><i className="bi bi-calendar3 me-1" />Upload Date</th>
-                    <th><i className="bi bi-clock me-1" />Upload Time</th>
-                    <th><i className="bi bi-list-ol me-1" />Total Rows</th>
-                    <th><i className="bi bi-check-circle me-1" />Status</th>
-                    <th style={{ width: "120px" }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploadSessions.map((session, idx) => (
-                    <tr key={session.id}>
-                      <td className="text-muted">{idx + 1}</td>
-                      <td>
-                        <div className="d-flex align-items-center gap-2">
-                          <i className="bi bi-file-earmark-spreadsheet-fill" style={{ color: "#16A34A", fontSize: "1.1rem" }} />
-                          <span className="fw-semibold text-dark">{session.filename}</span>
-                        </div>
-                      </td>
-                      <td className="text-muted">{new Date(session.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
-                      <td className="text-muted">{new Date(session.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}</td>
-                      <td>
-                        <span className="badge bg-light text-dark border" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
-                          {session.totalRows || 0} records
-                        </span>
-                      </td>
-                      <td>
-                        <span className="badge-pill badge-pill--green" style={{ fontSize: "0.75rem" }}>
-                          {session.status || "completed"}
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 rounded-pill px-3"
-                          style={{ fontSize: "0.75rem", fontWeight: 600 }}
-                          onClick={() => handleDeleteSession(session.id, session.filename)}
-                          disabled={deletingSessionId === session.id}
-                        >
-                          {deletingSessionId === session.id ? (
-                            <><div className="spinner-border spinner-border-sm" role="status" /> Deleting...</>
-                          ) : (
-                            <><i className="bi bi-trash" /> Delete</>  
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="panel repository-table-panel p-0 overflow-hidden">
+          <DataTable
+            title="Upload History"
+            count={uploadSessions.length}
+            icon="bi-cloud-upload"
+            columns={uploadColumns}
+            rows={uploadSessions}
+            isLoading={isLoadingSessions}
+            getRowKey={(row) => row.id}
+            emptyTitle="No Excel files have been uploaded yet"
+            emptyMessage="Upload a feedback Excel file from the AI Analysis page."
+            search={{ placeholder: "Search uploads…" }}
+          />
         </div>
       ) : (
         /* ── Active / Archived Feedback Records Tab ── */
-        <div className="panel repository-table-panel">
-          {isLoading ? (
-            <div className="p-5 text-center text-muted">
-              <div className="spinner-border text-primary me-2" role="status" />
-              <span>Loading records from MySQL database...</span>
-            </div>
-          ) : (
-            <>
-              <FeedbackTable
-                rows={pageRows}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onToggleSelectAll={toggleSelectAll}
-                onToggleArchive={toggleArchive}
-                onDeleteRow={deleteRow}
-                onViewRow={(row) => setActiveViewFeedback(row)}
-                sortBy={sortBy}
-                onSort={handleSortChange}
-              />
-
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-                totalItems={totalItems}
-                pageSize={PAGE_SIZE}
-              />
-            </>
-          )}
+        <div className="panel repository-table-panel p-0 overflow-hidden">
+          <DataTable
+            title={statusView === "archived" ? "Archived Feedback" : "Feedback Records"}
+            count={totalItems}
+            columns={feedbackColumns}
+            rows={pageRows}
+            isLoading={isLoading}
+            getRowKey={(row) => row.id}
+            minWidth="1200px"
+            emptyTitle="No Feedback Found"
+            emptyMessage="Try changing your filters or search keyword."
+            onRowClick={(row, event) => {
+              if (event.target.closest("button") || event.target.closest("input")) return;
+              setActiveViewFeedback(row);
+            }}
+            search={{
+              value: searchTerm,
+              onChange: handleSearchChange,
+              placeholder: "Search student, trainer, course…",
+            }}
+            filters={filters}
+            onFiltersChange={handleFiltersChange}
+            sort={sort}
+            onSortChange={handleSortChange}
+            selection={{
+              selectedIds,
+              onToggle: toggleSelect,
+              onToggleAll: toggleSelectAll,
+            }}
+            footer={
+              !isLoading ? (
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  totalItems={totalItems}
+                  pageSize={PAGE_SIZE}
+                />
+              ) : null
+            }
+          />
         </div>
       )}
 
@@ -622,7 +634,7 @@ function FeedbackRepository() {
         <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1050 }} tabIndex="-1" role="dialog">
           <div className="modal-dialog modal-dialog-centered modal-lg" role="document">
             <div className="modal-content border-0 shadow-lg" style={{ borderRadius: "12px" }}>
-              <div className="modal-header bg-light border-0 py-3" style={{ borderTopLeftRadius: "12px", borderTopRightRadius: "12px", display: "flex", justifyContent: "between", alignItems: "center", width: "100%" }}>
+              <div className="modal-header bg-light border-0 py-3" style={{ borderTopLeftRadius: "12px", borderTopRightRadius: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
                 <h5 className="modal-title font-weight-bold text-dark d-flex align-items-center gap-2" style={{ margin: 0 }}>
                   <i className="bi bi-file-earmark-text text-primary" />
                   <span>Feedback Details - {activeViewFeedback.id}</span>
@@ -648,7 +660,7 @@ function FeedbackRepository() {
                       </div>
                       <div className="d-flex justify-content-between border-bottom pb-2">
                         <span className="text-muted" style={{ fontSize: "0.85rem" }}>College:</span>
-                        <strong className="text-dark text-end" style={{ fontSize: "0.85rem" }}>{activeViewFeedback.college || "PSG College of Technology"}</strong>
+                        <strong className="text-dark text-end" style={{ fontSize: "0.85rem" }}>{activeViewFeedback.college || "—"}</strong>
                       </div>
                       <div className="d-flex justify-content-between border-bottom pb-2">
                         <span className="text-muted" style={{ fontSize: "0.85rem" }}>Course We Provide:</span>
@@ -656,7 +668,7 @@ function FeedbackRepository() {
                       </div>
                       <div className="d-flex justify-content-between border-bottom pb-2">
                         <span className="text-muted" style={{ fontSize: "0.85rem" }}>Degree / Department:</span>
-                        <strong className="text-dark text-end" style={{ fontSize: "0.85rem" }}>{activeViewFeedback.course} ({activeViewFeedback.department || "CS"})</strong>
+                        <strong className="text-dark text-end" style={{ fontSize: "0.85rem" }}>{activeViewFeedback.department || "—"}</strong>
                       </div>
                       <div className="d-flex justify-content-between border-bottom pb-2">
                         <span className="text-muted" style={{ fontSize: "0.85rem" }}>Trainer:</span>
@@ -678,7 +690,7 @@ function FeedbackRepository() {
                     
                     <div className="mb-4">
                       <span className="text-muted d-block mb-1" style={{ fontSize: "0.85rem" }}>Complete Feedback:</span>
-                      <div className="bg-light p-3 rounded" style={{ fontSize: "0.85rem", fontStyle: "italic", color: "#333", borderLeft: "4px solid #7c3aed" }}>
+                      <div className="p-3 rounded" style={{ fontSize: "0.85rem", fontStyle: "italic", color: "var(--color-text-primary)", background: "var(--color-bg-page)", borderLeft: "4px solid var(--color-accent-violet)" }}>
                         "{activeViewFeedback.text}"
                       </div>
                     </div>
@@ -693,10 +705,13 @@ function FeedbackRepository() {
                     </div>
 
                     <div className="mb-3">
-                      <span className="text-muted d-block mb-1.5" style={{ fontSize: "0.85rem" }}>AI Detected Keywords:</span>
-                      <div className="d-flex flex-wrap gap-1.5" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        {["teaching", "explanation", "practical", "helpful", "concepts", "support"].slice(0, activeViewFeedback.rating + 1).map((kw) => (
-                          <span key={kw} className="badge bg-secondary text-dark font-weight-normal px-2.5 py-1.5" style={{ fontSize: "0.7rem", backgroundColor: "#f3f4f6", borderRadius: "12px", border: "1px solid #e5e7eb" }}>
+                      <span className="text-muted d-block mb-2" style={{ fontSize: "0.85rem" }}>AI Detected Keywords:</span>
+                      <div className="d-flex flex-wrap" style={{ gap: "6px" }}>
+                        {(activeViewFeedback.keywords && activeViewFeedback.keywords.length > 0
+                          ? activeViewFeedback.keywords
+                          : ["No keywords extracted"]
+                        ).map((kw) => (
+                          <span key={kw} style={{ fontSize: "0.72rem", fontWeight: 500, color: "var(--color-text-secondary)", backgroundColor: "var(--color-bg-page)", borderRadius: "999px", border: "1px solid var(--color-border)", padding: "4px 10px" }}>
                             {kw}
                           </span>
                         ))}
@@ -704,12 +719,12 @@ function FeedbackRepository() {
                     </div>
 
                     <div>
-                      <span className="text-muted d-block mb-1" style={{ fontSize: "0.85rem" }}>Suggested Action:</span>
-                      <p className="text-dark" style={{ fontSize: "0.85rem", backgroundColor: "#fafafa", padding: "8px 12px", borderRadius: "6px", border: "1px solid #eee" }}>
+                      <span className="text-muted d-block mb-2" style={{ fontSize: "0.85rem" }}>Suggested Follow-up:</span>
+                      <p className="mb-0" style={{ fontSize: "0.85rem", color: "var(--color-text-primary)", background: "var(--color-bg-page)", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
                         {activeViewFeedback.sentiment === "negative"
-                          ? "Schedule follow-up doubt clearing session and review lab facilities."
+                          ? "Schedule a follow-up doubt-clearing session and review the flagged concerns."
                           : activeViewFeedback.sentiment === "positive"
-                          ? "Maintain current teaching methodology and share best practices."
+                          ? "Maintain the current teaching methodology and share best practices."
                           : "Incorporate more interactive case studies and hands-on practice."}
                       </p>
                     </div>

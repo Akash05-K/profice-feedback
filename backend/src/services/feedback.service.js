@@ -4,13 +4,15 @@ import { generateFeedbackCode } from "../utils/codeGenerator.js";
 import * as XLSX from "xlsx";
 import { stringify } from "csv-stringify/sync";
 
-export const getFeedbackRecords = async (queryParams) => {
+export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => {
   const {
     college,
     course,
     trainer,
     sentiment,
     rating,
+    student,
+    text,
     startDate,
     endDate,
     search,
@@ -23,6 +25,11 @@ export const getFeedbackRecords = async (queryParams) => {
   const isAll = (val) => !val || val === "all" || val === "All Colleges" || val === "All Courses" || val === "All Trainers" || val === "overall";
 
   const where = { status };
+
+  // RBAC data-scoping: a trainer only ever sees their own feedback.
+  if (scopeTrainerId) {
+    where.trainerId = scopeTrainerId;
+  }
 
   if (college && !isAll(college)) {
     where.college = { name: college };
@@ -43,6 +50,14 @@ export const getFeedbackRecords = async (queryParams) => {
 
   if (rating && rating !== "all") {
     where.rating = parseInt(rating, 10);
+  }
+
+  if (student && student.trim()) {
+    where.studentName = { contains: student.trim() };
+  }
+
+  if (text && text.trim()) {
+    where.feedbackText = { contains: text.trim() };
   }
 
   if (startDate || endDate) {
@@ -92,16 +107,36 @@ export const getFeedbackRecords = async (queryParams) => {
       orderBy = { trainer: { name: "desc" } };
       break;
     case "rating-high":
+    case "rating-desc":
       orderBy = { rating: "desc" };
       break;
     case "rating-low":
+    case "rating-asc":
       orderBy = { rating: "asc" };
+      break;
+    case "date-asc":
+      orderBy = { createdAt: "asc" };
+      break;
+    case "date-desc":
+      orderBy = { createdAt: "desc" };
       break;
     case "sentiment-asc":
       orderBy = { sentiment: "asc" };
       break;
     case "sentiment-desc":
       orderBy = { sentiment: "desc" };
+      break;
+    case "text-asc":
+      orderBy = { feedbackText: "asc" };
+      break;
+    case "text-desc":
+      orderBy = { feedbackText: "desc" };
+      break;
+    case "status-asc":
+      orderBy = { status: "asc" };
+      break;
+    case "status-desc":
+      orderBy = { status: "desc" };
       break;
     case "newest":
     default:
@@ -142,6 +177,8 @@ export const getFeedbackRecords = async (queryParams) => {
     college: r.college.name,
     department: r.department || "Computer Science",
     batch: r.batch ? r.batch.batchCode : "GEN-B01",
+    keywords: Array.isArray(r.aiKeywords) ? r.aiKeywords : [],
+    confidence: typeof r.aiConfidence === "number" ? Math.round(r.aiConfidence * 100) : null,
   }));
 
   return formatPaginatedResponse(formattedRows, total, currentPage, pageSize);
@@ -184,16 +221,19 @@ export const getFeedbackFilterOptions = async (queryParams = {}) => {
   };
 };
 
-export const getFeedbackStats = async () => {
-  const total = await prisma.feedbackRecord.count();
-  const positive = await prisma.feedbackRecord.count({ where: { sentiment: "positive" } });
-  const neutral = await prisma.feedbackRecord.count({ where: { sentiment: "neutral" } });
-  const negative = await prisma.feedbackRecord.count({ where: { sentiment: "negative" } });
+export const getFeedbackStats = async (scopeTrainerId = null) => {
+  // RBAC data-scoping: a trainer only ever sees their own feedback stats.
+  const base = scopeTrainerId ? { trainerId: scopeTrainerId } : {};
+  const total = await prisma.feedbackRecord.count({ where: { ...base } });
+  const positive = await prisma.feedbackRecord.count({ where: { ...base, sentiment: "positive" } });
+  const neutral = await prisma.feedbackRecord.count({ where: { ...base, sentiment: "neutral" } });
+  const negative = await prisma.feedbackRecord.count({ where: { ...base, sentiment: "negative" } });
 
-  const activeCount = await prisma.feedbackRecord.count({ where: { status: "active" } });
-  const archivedCount = await prisma.feedbackRecord.count({ where: { status: "archived" } });
+  const activeCount = await prisma.feedbackRecord.count({ where: { ...base, status: "active" } });
+  const archivedCount = await prisma.feedbackRecord.count({ where: { ...base, status: "archived" } });
 
   const avgResult = await prisma.feedbackRecord.aggregate({
+    where: { ...base },
     _avg: { rating: true },
   });
   const avgRating = (avgResult._avg.rating || 0).toFixed(1);
@@ -209,11 +249,15 @@ export const getFeedbackStats = async () => {
   };
 };
 
-export const getFeedbackById = async (id) => {
+export const getFeedbackById = async (id, scopeTrainerId = null) => {
+  const where = {
+    OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
+  };
+  // RBAC data-scoping: a trainer can only fetch their own feedback record.
+  if (scopeTrainerId) where.trainerId = scopeTrainerId;
+
   const record = await prisma.feedbackRecord.findFirst({
-    where: {
-      OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
-    },
+    where,
     include: {
       college: true,
       course: true,
@@ -311,16 +355,48 @@ export const bulkActionFeedback = async ({ ids, action }) => {
   }
 };
 
-export const exportFeedbackRecords = async ({ ids, format = "xlsx" }) => {
+export const exportFeedbackRecords = async (params = {}, scopeTrainerId = null) => {
+  const { ids, format = "xlsx", college, course, trainer, sentiment, rating, startDate, endDate, search, status } = params;
+
+  const isAll = (val) =>
+    !val || val === "all" || val === "All Colleges" || val === "All Courses" || val === "All Trainers" || val === "overall";
+
+  // Build the same filter where-clause the list uses, so exports honor UI filters.
+  const where = {};
+  if (scopeTrainerId) where.trainerId = scopeTrainerId; // RBAC: trainer exports only own
+  if (status && status !== "all") where.status = status;
+  if (college && !isAll(college)) where.college = { name: college };
+  if (course && !isAll(course)) where.course = { title: course };
+  if (trainer && !isAll(trainer)) where.trainer = { name: trainer };
+  if (sentiment && sentiment !== "all") where.sentiment = sentiment;
+  if (rating && rating !== "all") where.rating = parseInt(rating, 10);
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = new Date(startDate);
+    if (endDate) where.createdAt.lte = new Date(endDate);
+  }
+  if (search && search.trim()) {
+    const term = search.trim();
+    where.OR = [
+      { studentName: { contains: term } },
+      { feedbackText: { contains: term } },
+      { trainer: { name: { contains: term } } },
+      { course: { title: { contains: term } } },
+      { college: { name: { contains: term } } },
+    ];
+  }
+
   let records = [];
   if (Array.isArray(ids) && ids.length > 0) {
     records = await prisma.feedbackRecord.findMany({
-      where: { feedbackCode: { in: ids } },
+      where: { ...where, feedbackCode: { in: ids } },
       include: { college: true, course: true, trainer: true, batch: true },
     });
   } else {
     records = await prisma.feedbackRecord.findMany({
+      where,
       take: 1000,
+      orderBy: { createdAt: "desc" },
       include: { college: true, course: true, trainer: true, batch: true },
     });
   }

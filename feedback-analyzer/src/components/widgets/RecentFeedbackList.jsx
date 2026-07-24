@@ -8,8 +8,8 @@ function RecentFeedbackList({ items }) {
   const displayItems = items ? items.slice(0, 3) : [];
 
   return (
-    <div className="panel recent-feedback-card" style={{ padding: "20px" }}>
-      <div className="panel-header" style={{ marginBottom: "16px" }}>
+    <div className="panel recent-feedback-card">
+      <div className="panel-header">
         <h2 className="panel-header__title">
           <span className="panel-header__icon panel-header__icon--blue">
             <i className="bi bi-chat-left-text-fill" />
@@ -18,23 +18,27 @@ function RecentFeedbackList({ items }) {
         </h2>
       </div>
 
-      <ul className="recent-feedback-list" style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
-        {displayItems.map((item) => {
-          const meta = sentimentMeta[item.sentiment] || sentimentMeta.neutral;
-          return (
-            <li key={item.id} className="recent-feedback-list__item" style={{ padding: "8px 12px", border: "1px solid #f1f5f9", borderRadius: "8px", background: "#f8fafc" }}>
-              <span className={`recent-feedback-list__icon recent-feedback-list__icon--${meta.tone}`}>
-                <i className={`bi ${meta.icon}`} />
-              </span>
-              <div className="recent-feedback-list__body">
-                <p className="recent-feedback-list__text" style={{ fontSize: "0.8rem", margin: 0, lineHeight: "1.25", color: "#1e293b" }}>{item.text}</p>
-                <span className="recent-feedback-list__author" style={{ fontSize: "0.72rem", color: "#64748b" }}>- {item.author}</span>
-              </div>
-              <span className={`badge-pill badge-pill--${meta.tone}`} style={{ fontSize: "0.7rem", padding: "2px 8px" }}>{meta.label}</span>
-            </li>
-          );
-        })}
-      </ul>
+      {displayItems.length === 0 ? (
+        <p className="ranked-list__empty">No recent feedback yet.</p>
+      ) : (
+        <ul className="recent-feedback-list">
+          {displayItems.map((item) => {
+            const meta = sentimentMeta[item.sentiment] || sentimentMeta.neutral;
+            return (
+              <li key={item.id} className="recent-feedback-list__item">
+                <span className={`recent-feedback-list__icon recent-feedback-list__icon--${meta.tone}`}>
+                  <i className={`bi ${meta.icon}`} />
+                </span>
+                <div className="recent-feedback-list__body">
+                  <p className="recent-feedback-list__text">{item.text}</p>
+                  <span className="recent-feedback-list__author">— {item.author}</span>
+                </div>
+                <span className={`badge-pill badge-pill--${meta.tone}`}>{meta.label}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

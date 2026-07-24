@@ -2,8 +2,29 @@ import prisma from "../config/db.js";
 import { getPagination, formatPaginatedResponse } from "../utils/pagination.js";
 import { generateActionCode } from "../utils/codeGenerator.js";
 
+// Column sorting sent by the shared DataTable as "<column>-<asc|desc>".
+const buildActionOrderBy = (sortBy) => {
+  const [field, direction] = String(sortBy || "").split("-");
+  const dir = direction === "asc" ? "asc" : "desc";
+
+  switch (field) {
+    case "title":
+      return { title: dir };
+    case "assignedTo":
+      return { assignedTo: { name: dir } };
+    case "priority":
+      return { priority: dir };
+    case "dueDate":
+      return { dueDate: dir };
+    case "status":
+      return { status: dir };
+    default:
+      return { createdAt: "desc" };
+  }
+};
+
 export const getActions = async (queryParams) => {
-  const { priority, status, search, page, limit } = queryParams;
+  const { priority, status, search, title, assignedTo, dueFrom, dueTo, sortBy, page, limit } = queryParams;
 
   const where = {};
 
@@ -12,7 +33,22 @@ export const getActions = async (queryParams) => {
   }
 
   if (status && status !== "all") {
-    where.status = status;
+    // Frontend uses "in-progress"; the DB enum stores "in_progress".
+    where.status = status === "in-progress" ? "in_progress" : status;
+  }
+
+  if (title && title.trim()) {
+    where.title = { contains: title.trim() };
+  }
+
+  if (assignedTo && assignedTo.trim()) {
+    where.assignedTo = { name: { contains: assignedTo.trim() } };
+  }
+
+  if (dueFrom || dueTo) {
+    where.dueDate = {};
+    if (dueFrom) where.dueDate.gte = new Date(dueFrom);
+    if (dueTo) where.dueDate.lte = new Date(`${dueTo}T23:59:59`);
   }
 
   if (search && search.trim()) {
@@ -29,7 +65,7 @@ export const getActions = async (queryParams) => {
     prisma.actionItem.findMany({
       where,
       include: { assignedTo: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: buildActionOrderBy(sortBy),
       skip,
       take: pageSize,
     }),

@@ -1,8 +1,40 @@
 import prisma from "../config/db.js";
 import { getPagination, formatPaginatedResponse } from "../utils/pagination.js";
 
+// Column sorting sent by the shared DataTable as "<column>-<asc|desc>".
+const buildNotificationOrderBy = (sortBy) => {
+  const [field, direction] = String(sortBy || "").split("-");
+  const dir = direction === "asc" ? "asc" : "desc";
+
+  switch (field) {
+    case "message":
+      return { message: dir };
+    case "type":
+      return { type: dir };
+    case "read":
+      return { isRead: dir };
+    case "time":
+      return { createdAt: dir };
+    default:
+      return { createdAt: "desc" };
+  }
+};
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+const relativeTime = (date) => {
+  const elapsed = Date.now() - date.getTime();
+  if (elapsed < MINUTE) return "Just now";
+  if (elapsed < HOUR) return `${Math.floor(elapsed / MINUTE)}m ago`;
+  if (elapsed < DAY) return `${Math.floor(elapsed / HOUR)}h ago`;
+  if (elapsed < 7 * DAY) return `${Math.floor(elapsed / DAY)}d ago`;
+  return date.toISOString().slice(0, 10);
+};
+
 export const getNotifications = async (queryParams) => {
-  const { type, filterTab, page, limit } = queryParams;
+  const { type, filterTab, read, message, startDate, endDate, sortBy, page, limit } = queryParams;
   const where = {};
 
   if (filterTab === "unread") {
@@ -13,8 +45,22 @@ export const getNotifications = async (queryParams) => {
     where.type = "in_app";
   } else if (filterTab === "alert") {
     where.type = "alert";
-  } else if (type) {
+  } else if (type && type !== "all") {
     where.type = type === "in-app" ? "in_app" : type;
+  }
+
+  if (read === "read" || read === "unread") {
+    where.isRead = read === "read";
+  }
+
+  if (message && message.trim()) {
+    where.message = { contains: message.trim() };
+  }
+
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = new Date(startDate);
+    if (endDate) where.createdAt.lte = new Date(`${endDate}T23:59:59`);
   }
 
   const { page: currentPage, limit: pageSize, skip } = getPagination(page, limit, 4);
@@ -22,7 +68,7 @@ export const getNotifications = async (queryParams) => {
   const [logs, total] = await prisma.$transaction([
     prisma.notification.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: buildNotificationOrderBy(sortBy),
       skip,
       take: pageSize,
     }),
@@ -33,7 +79,8 @@ export const getNotifications = async (queryParams) => {
     id: `NTF-${l.id}`,
     type: l.type === "in_app" ? "in-app" : l.type,
     message: l.message,
-    time: "Recently",
+    time: relativeTime(l.createdAt),
+    createdAt: l.createdAt.toISOString(),
     icon: l.type === "email" ? "bi-envelope-paper-fill" : l.type === "alert" ? "bi-exclamation-triangle-fill" : "bi-chat-left-text-fill",
     tone: l.type === "email" ? "amber" : l.type === "alert" ? "red" : "blue",
     read: l.isRead,

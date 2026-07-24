@@ -1,7 +1,11 @@
 import { Router } from "express";
 import * as notificationsController from "../controllers/notifications.controller.js";
+import { authenticate } from "../middleware/auth.js";
 
 const router = Router();
+
+// Notifications are available to any authenticated user.
+router.use(authenticate);
 
 router.get("/", notificationsController.getList);
 router.get("/summary", notificationsController.getSummary);

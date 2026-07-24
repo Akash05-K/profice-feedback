@@ -2,35 +2,48 @@ import prisma from "../config/db.js";
 
 export const getBatchesList = async () => {
   const activeRecords = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
-    select: { batchId: true },
+    where: { status: "active", batchId: { not: null } },
+    select: { batchId: true, rating: true, sentiment: true },
   });
 
-  const activeBatchIds = Array.from(new Set(activeRecords.map((r) => r.batchId).filter(Boolean)));
-
-  if (activeBatchIds.length === 0) {
+  if (activeRecords.length === 0) {
     return [];
   }
 
+  // Aggregate real feedback per batch. We only report metrics we can actually
+  // derive from feedback (avg rating, satisfaction, positive sentiment) — not
+  // enrollment/completion rates, which the source data doesn't contain.
+  const byBatch = {};
+  activeRecords.forEach((r) => {
+    if (!byBatch[r.batchId]) byBatch[r.batchId] = { sum: 0, n: 0, satisfied: 0, positive: 0 };
+    byBatch[r.batchId].sum += r.rating;
+    byBatch[r.batchId].n += 1;
+    if (r.rating >= 3) byBatch[r.batchId].satisfied += 1;
+    if (r.sentiment === "positive") byBatch[r.batchId].positive += 1;
+  });
+
+  const activeBatchIds = Object.keys(byBatch).map(Number);
+
   const batches = await prisma.batch.findMany({
     where: { id: { in: activeBatchIds } },
-    include: {
-      course: true,
-      trainer: true,
-    },
+    include: { course: true, trainer: true },
     orderBy: { batchCode: "asc" },
   });
 
-  return batches.map((b) => ({
-    id: String(b.id),
-    name: b.batchCode,
-    course: b.course ? b.course.title : "N/A",
-    trainer: b.trainer ? b.trainer.name : "N/A",
-    totalStudents: b.totalStudents,
-    completionRate: 85,
-    participationRate: 80,
-    overallScore: 85,
-  }));
+  return batches.map((b) => {
+    const agg = byBatch[b.id];
+    return {
+      id: String(b.id),
+      name: b.batchCode,
+      course: b.course ? b.course.title : "N/A",
+      trainer: b.trainer ? b.trainer.name : "N/A",
+      responses: agg.n,
+      avgRating: Number((agg.sum / agg.n).toFixed(2)),
+      overallScore: Math.round((agg.sum / agg.n) * 20), // avg rating -> 0-100
+      satisfactionRate: Math.round((agg.satisfied / agg.n) * 100), // % rated >= 3
+      positiveRate: Math.round((agg.positive / agg.n) * 100), // % positive sentiment
+    };
+  });
 };
 
 export const getBatchStats = async () => {
@@ -38,20 +51,20 @@ export const getBatchStats = async () => {
   if (batches.length === 0) {
     return {
       totalBatches: 0,
-      totalStudents: 0,
-      avgCompletion: 0,
-      avgParticipation: 0,
+      totalResponses: 0,
+      avgSatisfaction: 0,
+      avgPositive: 0,
     };
   }
 
-  const totalStudents = batches.reduce((sum, b) => sum + b.totalStudents, 0);
-  const avgCompletion = Math.round(batches.reduce((sum, b) => sum + b.completionRate, 0) / batches.length);
-  const avgParticipation = Math.round(batches.reduce((sum, b) => sum + b.participationRate, 0) / batches.length);
+  const totalResponses = batches.reduce((sum, b) => sum + b.responses, 0);
+  const avgSatisfaction = Math.round(batches.reduce((sum, b) => sum + b.satisfactionRate, 0) / batches.length);
+  const avgPositive = Math.round(batches.reduce((sum, b) => sum + b.positiveRate, 0) / batches.length);
 
   return {
     totalBatches: batches.length,
-    totalStudents,
-    avgCompletion,
-    avgParticipation,
+    totalResponses,
+    avgSatisfaction,
+    avgPositive,
   };
 };
