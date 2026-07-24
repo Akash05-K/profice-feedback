@@ -12,13 +12,16 @@ function TrendTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   return (
     <div className="chart-tooltip">
-      <span className="chart-tooltip__title">{label} 2026</span>
+      <span className="chart-tooltip__title">{label}</span>
       <span className="chart-tooltip__value">{payload[0].value.toFixed(1)} / 5 rating</span>
     </div>
   );
 }
 
 function MonthlyRatingChart({ data }) {
+  if (!data || data.length === 0) {
+    return <div className="chart-empty">No trend data for this selection yet.</div>;
+  }
   return (
     <ResponsiveContainer width="100%" height={260}>
       <AreaChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>

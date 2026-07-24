@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { toast } from "react-toastify";
 import AppLayout from "../../components/layout/AppLayout";
 import StatCard from "../../components/cards/StatCard";
-import SelectDropdown from "../../components/common/SelectDropdown";
 import SentimentDonutChart from "../../components/charts/SentimentDonutChart";
 import SentimentLegend from "../../components/widgets/SentimentLegend";
 import Pagination from "../../components/widgets/Pagination";
+import DataTable from "../../components/tables/DataTable";
 import api from "../../services/api";
 
 function StarRating({ rating }) {
@@ -22,20 +23,28 @@ function StarRating({ rating }) {
 
 const PAGE_SIZE = 5;
 
+const SENTIMENT_OPTIONS = [
+  { value: "positive", label: "Positive" },
+  { value: "neutral", label: "Neutral" },
+  { value: "negative", label: "Negative" },
+];
+
+const RATING_OPTIONS = [5, 4, 3, 2, 1].map((n) => ({
+  value: String(n),
+  label: `${n} star${n > 1 ? "s" : ""}`,
+}));
+
+const sentimentTone = (sentiment) =>
+  sentiment === "positive" ? "green" : sentiment === "negative" ? "red" : "amber";
+
 function Reports() {
-  const [selectedCollege, setSelectedCollege] = useState("all");
-  const [selectedCourse, setSelectedCourse] = useState("all");
-  const [selectedTrainer, setSelectedTrainer] = useState("all");
-
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-
+  const [filters, setFilters] = useState({});
+  const [sort, setSort] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [collegesList, setCollegesList] = useState([{ value: "all", label: "All Colleges" }]);
-  const [coursesList, setCoursesList] = useState([{ value: "all", label: "All Courses" }]);
-  const [trainersList, setTrainersList] = useState([{ value: "all", label: "All Trainers" }]);
+  const [collegeOptions, setCollegeOptions] = useState([]);
+  const [courseOptions, setCourseOptions] = useState([]);
+  const [trainerOptions, setTrainerOptions] = useState([]);
 
   const [records, setRecords] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
@@ -55,51 +64,53 @@ function Reports() {
     { name: "Negative", value: 0, count: "0", color: "#EF4444" },
   ]);
 
-  // Load cascading filter options
+  // Every column filter maps to a server query param so paging stays correct.
+  const queryParams = useMemo(
+    () => ({
+      student: filters.student || undefined,
+      college: filters.college || undefined,
+      course: filters.course || undefined,
+      trainer: filters.trainer || undefined,
+      rating: filters.rating || undefined,
+      sentiment: filters.sentiment || undefined,
+      startDate: filters.date?.from || undefined,
+      endDate: filters.date?.to || undefined,
+      sortBy: sort ? `${sort.key}-${sort.dir}` : undefined,
+    }),
+    [filters, sort]
+  );
+
+  // Cascading options: narrowing college narrows the course and trainer lists.
   const loadFilterOptions = useCallback(async () => {
     try {
       const res = await api.getFeedbackFilterOptions({
-        college: selectedCollege !== "all" ? selectedCollege : undefined,
-        course: selectedCourse !== "all" ? selectedCourse : undefined,
+        college: filters.college || undefined,
+        course: filters.course || undefined,
       });
-      if (res.data) {
-        const validColleges = res.data.colleges || ["All Colleges"];
-        const validCourses = res.data.courses || ["All Courses"];
-        const validTrainers = res.data.trainers || ["All Trainers"];
+      if (!res.data) return;
 
-        setCollegesList([
-          { value: "all", label: "All Colleges" },
-          ...validColleges.filter((c) => c !== "All Colleges").map((c) => ({ value: c, label: c })),
-        ]);
-        setCoursesList([
-          { value: "all", label: "All Courses" },
-          ...validCourses.filter((c) => c !== "All Courses").map((c) => ({ value: c, label: c })),
-        ]);
-        setTrainersList([
-          { value: "all", label: "All Trainers" },
-          ...validTrainers.filter((t) => t !== "All Trainers").map((t) => ({ value: t, label: t })),
-        ]);
-      }
+      const toOptions = (list, allLabel) =>
+        (list || [])
+          .filter((item) => item !== allLabel)
+          .map((item) => ({ value: item, label: item }));
+
+      setCollegeOptions(toOptions(res.data.colleges, "All Colleges"));
+      setCourseOptions(toOptions(res.data.courses, "All Courses"));
+      setTrainerOptions(toOptions(res.data.trainers, "All Trainers"));
     } catch (e) {
       console.error("Filter options fetch error:", e);
     }
-  }, [selectedCollege, selectedCourse]);
+  }, [filters.college, filters.course]);
 
   useEffect(() => {
     loadFilterOptions();
   }, [loadFilterOptions]);
 
-  // Fetch report data
   const fetchReportsData = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await api.getReportsData({
-        college: selectedCollege !== "all" ? selectedCollege : undefined,
-        course: selectedCourse !== "all" ? selectedCourse : undefined,
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
-        startDate,
-        endDate,
-        search: searchTerm,
+        ...queryParams,
         page: currentPage,
         limit: PAGE_SIZE,
       });
@@ -118,29 +129,79 @@ function Reports() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedCollege, selectedCourse, selectedTrainer, startDate, endDate, searchTerm, currentPage]);
+  }, [queryParams, currentPage]);
 
   useEffect(() => {
     fetchReportsData();
   }, [fetchReportsData]);
 
-  const handleCollegeChange = (val) => {
-    setSelectedCollege(val);
-    setSelectedCourse("all");
-    setSelectedTrainer("all");
+  const handleFiltersChange = (next) => {
+    // Clearing a parent filter drops the narrower ones that depended on it.
+    const cleaned = { ...next };
+    if (cleaned.college !== filters.college) {
+      delete cleaned.course;
+      delete cleaned.trainer;
+    } else if (cleaned.course !== filters.course) {
+      delete cleaned.trainer;
+    }
+    setFilters(cleaned);
     setCurrentPage(1);
   };
 
-  const handleCourseChange = (val) => {
-    setSelectedCourse(val);
-    setSelectedTrainer("all");
+  const handleSortChange = (next) => {
+    setSort(next);
     setCurrentPage(1);
   };
 
-  const handleTrainerChange = (val) => {
-    setSelectedTrainer(val);
-    setCurrentPage(1);
-  };
+  const columns = useMemo(
+    () => [
+      {
+        key: "student",
+        label: "Student",
+        filter: { type: "text", placeholder: "Student name contains…" },
+        className: "fw-semibold",
+        cellStyle: { color: "var(--color-text-primary)" },
+      },
+      {
+        key: "college",
+        label: "College",
+        filter: { type: "select", options: collegeOptions, anyLabel: "All Colleges" },
+      },
+      {
+        key: "course",
+        label: "Course",
+        filter: { type: "select", options: courseOptions, anyLabel: "All Courses" },
+      },
+      {
+        key: "trainer",
+        label: "Trainer",
+        filter: { type: "select", options: trainerOptions, anyLabel: "All Trainers" },
+      },
+      {
+        key: "rating",
+        label: "Rating",
+        filter: { type: "select", options: RATING_OPTIONS, anyLabel: "Any rating" },
+        render: (row) => <StarRating rating={row.rating} />,
+      },
+      {
+        key: "sentiment",
+        label: "Sentiment",
+        filter: { type: "select", options: SENTIMENT_OPTIONS, anyLabel: "Any sentiment" },
+        render: (row) => (
+          <span className={`badge-pill badge-pill--${sentimentTone(row.sentiment)}`}>
+            {row.sentiment ? row.sentiment.charAt(0).toUpperCase() + row.sentiment.slice(1) : "Neutral"}
+          </span>
+        ),
+      },
+      {
+        key: "date",
+        label: "Date",
+        filter: { type: "date" },
+        className: "text-muted",
+      },
+    ],
+    [collegeOptions, courseOptions, trainerOptions]
+  );
 
   const statCards = [
     { id: "total-feedback", label: "Total Reviews", value: String(kpis.total), icon: "bi-chat-square-text-fill", tone: "violet" },
@@ -149,125 +210,69 @@ function Reports() {
     { id: "positive-percent", label: "Positive Ratio", value: `${kpis.positivePercent}%`, icon: "bi-hand-thumbs-up-fill", tone: "blue" },
   ];
 
-  const handleExportPDF = async () => {
+  const downloadBlob = (blob, ext, type) => {
+    const url = window.URL.createObjectURL(type ? new Blob([blob], { type }) : new Blob([blob]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `Feedback_Report_${new Date().toISOString().slice(0, 10)}.${ext}`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const runExport = async (fn, ext, type, label) => {
+    const toastId = toast.loading(`Generating ${label}…`);
     try {
-      const blob = await api.exportReportsPdf({
-        college: selectedCollege !== "all" ? selectedCollege : undefined,
-        course: selectedCourse !== "all" ? selectedCourse : undefined,
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
-      });
-      const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `Feedback_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const blob = await fn(queryParams);
+      downloadBlob(blob, ext, type);
+      toast.update(toastId, { render: `${label} downloaded.`, type: "success", isLoading: false, autoClose: 3000 });
     } catch (e) {
-      console.error("PDF export error:", e);
+      toast.update(toastId, { render: e.message || `Failed to export ${label}.`, type: "error", isLoading: false, autoClose: 4000 });
     }
   };
 
-  const handleExportExcel = async () => {
-    try {
-      const blob = await api.exportReportsExcel({
-        college: selectedCollege !== "all" ? selectedCollege : undefined,
-        course: selectedCourse !== "all" ? selectedCourse : undefined,
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
-      });
-      const url = window.URL.createObjectURL(new Blob([blob]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `Feedback_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (e) {
-      console.error("Excel export error:", e);
-    }
-  };
+  const handleExportPDF = () => runExport(api.exportReportsPdf, "pdf", "application/pdf", "PDF report");
+  const handleExportExcel = () => runExport(api.exportReportsExcel, "xlsx", null, "Excel report");
+  const handleExportCSV = () => runExport(api.exportReportsCsv, "csv", null, "CSV report");
 
-  const handleExportCSV = async () => {
-    try {
-      const blob = await api.exportReportsCsv({
-        college: selectedCollege !== "all" ? selectedCollege : undefined,
-        course: selectedCourse !== "all" ? selectedCourse : undefined,
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
-      });
-      const url = window.URL.createObjectURL(new Blob([blob]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `Feedback_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (e) {
-      console.error("CSV export error:", e);
-    }
-  };
+  const exportButtons = (
+    <>
+      <button
+        type="button"
+        className="reports-export-btn reports-export-btn--compact reports-export-btn--pdf"
+        onClick={handleExportPDF}
+        disabled={records.length === 0}
+        title="Export as PDF"
+      >
+        <i className="bi bi-file-earmark-pdf-fill" />
+        <span>PDF</span>
+      </button>
+      <button
+        type="button"
+        className="reports-export-btn reports-export-btn--compact reports-export-btn--excel"
+        onClick={handleExportExcel}
+        disabled={records.length === 0}
+        title="Export as Excel"
+      >
+        <i className="bi bi-file-earmark-spreadsheet-fill" />
+        <span>Excel</span>
+      </button>
+      <button
+        type="button"
+        className="reports-export-btn reports-export-btn--compact reports-export-btn--csv"
+        onClick={handleExportCSV}
+        disabled={records.length === 0}
+        title="Export as CSV"
+      >
+        <i className="bi bi-file-earmark-text-fill" />
+        <span>CSV</span>
+      </button>
+    </>
+  );
 
   return (
     <AppLayout title="Reports Generator">
-      {/* Control Panel Section */}
-      <div className="panel reports-control-panel">
-        <div className="reports-subfilters" style={{ borderBottom: "1px solid var(--color-border)", paddingBottom: "16px" }}>
-          <div className="reports-export-group">
-            <button
-              type="button"
-              className="reports-export-btn reports-export-btn--pdf"
-              onClick={handleExportPDF}
-              disabled={records.length === 0}
-            >
-              <i className="bi bi-file-earmark-pdf-fill" />
-              <span>Export PDF</span>
-            </button>
-            <button
-              type="button"
-              className="reports-export-btn reports-export-btn--excel"
-              onClick={handleExportExcel}
-              disabled={records.length === 0}
-            >
-              <i className="bi bi-file-earmark-spreadsheet-fill" />
-              <span>Export Excel</span>
-            </button>
-            <button
-              type="button"
-              className="reports-export-btn reports-export-btn--csv"
-              onClick={handleExportCSV}
-              disabled={records.length === 0}
-            >
-              <i className="bi bi-file-earmark-text-fill" />
-              <span>Export CSV</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 3 Cascading Filter Controls: College, Course, Trainer */}
-        <div className="reports-filter-grid">
-          <SelectDropdown
-            label="College"
-            icon="bi-building"
-            value={selectedCollege}
-            onChange={handleCollegeChange}
-            options={collegesList}
-          />
-          <SelectDropdown
-            label="Course"
-            icon="bi-journal-bookmark"
-            value={selectedCourse}
-            onChange={handleCourseChange}
-            options={coursesList}
-          />
-          <SelectDropdown
-            label="Trainer"
-            icon="bi-person"
-            value={selectedTrainer}
-            onChange={handleTrainerChange}
-            options={trainersList}
-          />
-        </div>
-      </div>
-
       {/* KPI Cards */}
       <div className="stat-card-grid stat-card-grid--four mb-4">
         {statCards.map((card) => (
@@ -275,68 +280,35 @@ function Reports() {
         ))}
       </div>
 
-      {/* Main Content Layout */}
       <div className="reports-layout-grid mb-4">
-        {/* Left Column: Detailed Records Table */}
         <div className="panel reports-table-panel p-0 overflow-hidden">
-          <div className="panel-header p-3 border-bottom d-flex justify-content-between align-items-center">
-            <h2 className="panel-header__title m-0" style={{ fontSize: "1rem" }}>
-              Filtered Feedback Records ({totalItems})
-            </h2>
-          </div>
-
-          {isLoading ? (
-            <div className="p-4 text-center text-muted">
-              <div className="spinner-border text-primary me-2" role="status" />
-              <span>Loading reports...</span>
-            </div>
-          ) : (
-            <>
-              <div className="table-responsive">
-                <table className="table table-hover align-middle mb-0" style={{ fontSize: "0.85rem" }}>
-                  <thead className="table-light">
-                    <tr>
-                      <th>Student</th>
-                      <th>College</th>
-                      <th>Course</th>
-                      <th>Trainer</th>
-                      <th>Rating</th>
-                      <th>Sentiment</th>
-                      <th>Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.map((r, i) => (
-                      <tr key={i}>
-                        <td className="fw-semibold">{r.student}</td>
-                        <td>{r.college}</td>
-                        <td>{r.course}</td>
-                        <td>{r.trainer}</td>
-                        <td><StarRating rating={r.rating} /></td>
-                        <td>
-                          <span className={`badge-pill badge-pill--${r.sentiment === "positive" ? "green" : r.sentiment === "negative" ? "red" : "amber"}`}>
-                            {r.sentiment ? r.sentiment.charAt(0).toUpperCase() + r.sentiment.slice(1) : "Neutral"}
-                          </span>
-                        </td>
-                        <td className="text-muted">{r.date}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-                totalItems={totalItems}
-                pageSize={PAGE_SIZE}
-              />
-            </>
-          )}
+          <DataTable
+            title="Filtered Feedback Records"
+            count={totalItems}
+            columns={columns}
+            rows={records}
+            isLoading={isLoading}
+            getRowKey={(row, index) => `${row.student}-${row.date}-${index}`}
+            emptyMessage="Try adjusting the column filters."
+            toolbarActions={exportButtons}
+            filters={filters}
+            onFiltersChange={handleFiltersChange}
+            sort={sort}
+            onSortChange={handleSortChange}
+            footer={
+              !isLoading ? (
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  totalItems={totalItems}
+                  pageSize={PAGE_SIZE}
+                />
+              ) : null
+            }
+          />
         </div>
 
-        {/* Right Column: Sentiment Share Chart */}
         <div className="panel sentiment-card">
           <div className="panel-header">
             <h2 className="panel-header__title">Report Sentiment Share</h2>

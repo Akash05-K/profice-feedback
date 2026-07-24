@@ -5,13 +5,14 @@ import SelectDropdown from "../../components/common/SelectDropdown";
 import ProfileBanner from "../../components/widgets/ProfileBanner";
 import StrengthsWeaknesses from "../../components/widgets/StrengthsWeaknesses";
 import RecommendedActions from "../../components/widgets/RecommendedActions";
+import MonthlyRatingChart from "../../components/charts/MonthlyRatingChart";
 import api from "../../services/api";
 
 const statCardsConfig = [
   { key: "overallRating", label: "Overall Rating", icon: "bi-star-fill", tone: "amber", suffix: "/ 5" },
   { key: "satisfaction", label: "Student Satisfaction", icon: "bi-emoji-smile-fill", tone: "green", suffix: "%" },
   { key: "totalBatches", label: "Batches Handled", icon: "bi-collection-fill", tone: "violet", suffix: "" },
-  { key: "totalSessions", label: "Sessions Conducted", icon: "bi-calendar2-check-fill", tone: "blue", suffix: "" },
+  { key: "positiveRate", label: "Positive Feedback", icon: "bi-hand-thumbs-up-fill", tone: "blue", suffix: "%" },
 ];
 
 function TrainerInsights() {
@@ -28,7 +29,8 @@ function TrainerInsights() {
     totalReviews: 0,
     satisfaction: 0,
     totalBatches: 0,
-    totalSessions: 0,
+    positiveRate: 0,
+    monthlyTrend: [],
     strengths: [],
     weaknesses: [],
     recommendations: [],
@@ -91,7 +93,6 @@ function TrainerInsights() {
 
   const currentTrainerObj = trainersList.find((t) => String(t.id) === String(trainerId)) || trainersList[0];
   const trainerName = currentTrainerObj ? currentTrainerObj.name : "Overall Classification";
-  const avatarInitials = trainerName ? trainerName.split(" ").map((p) => p[0]).join("").slice(0, 2) : "TR";
 
   const statCards = statCardsConfig.map((config) => ({
     id: config.key,
@@ -107,7 +108,7 @@ function TrainerInsights() {
       {/* Trainer profile + 3 cascading dropdown filters */}
       <div className="dashboard-row">
         <ProfileBanner
-          avatarLabel={avatarInitials}
+          avatarIcon="bi-person-workspace"
           name={trainerName}
           subtitle={`College: ${selectedCollege} · Course: ${selectedCourse}`}
           rating={metrics.overallRating}
@@ -142,10 +143,20 @@ function TrainerInsights() {
       </div>
 
       {/* Stat cards */}
-      <div className="stat-card-grid stat-card-grid--three">
+      <div className="stat-card-grid stat-card-grid--four">
         {statCards.map((card) => (
           <StatCard key={card.id} {...card} />
         ))}
+      </div>
+
+      {/* Rating trend */}
+      <div className="dashboard-row">
+        <div className="panel trend-card">
+          <div className="panel-header">
+            <h2 className="panel-header__title">Rating Trend</h2>
+          </div>
+          <MonthlyRatingChart data={metrics.monthlyTrend || []} />
+        </div>
       </div>
 
       {/* Strengths/Weaknesses */}

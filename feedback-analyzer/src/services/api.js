@@ -5,10 +5,29 @@ const API = axios.create({
   timeout: 30000,
 });
 
-// Response interceptor for data extraction
+// Request interceptor: attach the JWT from storage on every call.
+API.interceptors.request.use((config) => {
+  const token = localStorage.getItem("pf_token");
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Response interceptor: unwrap body, and on 401 clear the session + bounce to login.
 API.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url || "";
+    if (status === 401 && !url.includes("/auth/login")) {
+      localStorage.removeItem("pf_token");
+      localStorage.removeItem("pf_user");
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
     const message = error.response?.data?.message || error.message || "An error occurred";
     return Promise.reject(new Error(message));
   }
@@ -18,6 +37,12 @@ export const api = {
   // Auth
   login: (credentials) => API.post("/auth/login", credentials),
   register: (data) => API.post("/auth/register", data),
+  getMe: () => API.get("/auth/me"),
+
+  // AI / RAG
+  getAiDashboardSummary: () => API.get("/ai/dashboard-summary"),
+  getAiRecommendations: (params) => API.get("/ai/recommendations", { params }),
+  aiChat: (payload) => API.post("/ai/chat", payload),
 
   // Upload
   uploadExcel: (file) => {

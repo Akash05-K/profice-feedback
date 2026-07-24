@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../services/api";
 import AppLayout from "../../components/layout/AppLayout";
@@ -19,7 +19,6 @@ import {
   topKeywords,
   recommendedActions,
 } from "../../data/aiAnalysisData";
-import { aiSummaryText, aiConfidence, modelMeta } from "../../data/aiSummaryData";
 
 const capabilities = [
   { id: "sentiment", icon: "bi-emoji-smile-fill", title: "Sentiment Analysis", subtitle: "Analyze feedback sentiment", tone: "violet" },
@@ -33,11 +32,15 @@ function AIAnalysis() {
 
 
   const location = useLocation();
+  const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const [analyzedCount, setAnalyzedCount] = useState(totalAnalyzed);
   const [sentimentData, setSentimentData] = useState(overallSentiment);
   const [keywords, setKeywords] = useState(topKeywords);
   const [actions, setActions] = useState(recommendedActions);
+  const [summary, setSummary] = useState("Select or upload a feedback file to generate an AI summary.");
+  const [confidence, setConfidence] = useState({ value: "—", label: "Awaiting analysis" });
+  const [model, setModel] = useState({ model: "—" });
 
   const [sessions, setSessions] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState("");
@@ -68,6 +71,14 @@ function AIAnalysis() {
         if (res.data.sentimentData) setSentimentData(res.data.sentimentData);
         if (res.data.keywords) setKeywords(res.data.keywords);
         if (res.data.actions) setActions(res.data.actions);
+        if (res.data.summary) setSummary(res.data.summary);
+        if (res.data.aiConfidence) setConfidence(res.data.aiConfidence);
+        if (res.data.model) {
+          setModel({
+            model: res.data.model,
+            generatedOn: res.data.createdAt ? new Date(res.data.createdAt).toLocaleDateString() : undefined,
+          });
+        }
       }
     } catch (e) {
       console.error("Failed to load session analysis:", e);
@@ -127,23 +138,13 @@ function AIAnalysis() {
     }
   };
 
-  const defaultSessionOptions = [
-    { value: "demo-1", label: "feedback_july_2026.xlsx" },
-    { value: "demo-2", label: "trainer_feedback_batchA.xlsx" },
-    { value: "demo-3", label: "student_feedback_summary.xlsx" },
-    { value: "demo-4", label: "feedback_june_2026.xlsx" },
-    { value: "demo-5", label: "batchB_feedback.xlsx" },
-  ];
-
-  const sessionOptions = sessions.length > 0
-    ? sessions.map((s) => ({
-        value: String(s.id),
-        label: s.filename,
-      }))
-    : defaultSessionOptions;
+  const sessionOptions = sessions.map((s) => ({
+    value: String(s.id),
+    label: s.filename,
+  }));
 
   const dropdownOptions = [
-    { value: "", label: "Select an uploaded file" },
+    { value: "", label: sessions.length ? "Select an uploaded file" : "No files uploaded yet" },
     ...sessionOptions,
   ];
 
@@ -243,15 +244,16 @@ function AIAnalysis() {
           actions={actions}
           ctaLabel="View Action Tracker"
           ctaIcon="bi-arrow-right"
+          onCtaClick={() => navigate("/action-tracker")}
         />
       </div>
 
       {/* AI Summary + illustration */}
       <div className="dashboard-row ai-summary-row">
         <AISummaryCard
-          text={aiSummaryText}
+          text={summary}
           ctaLabel={null}
-          meta={modelMeta}
+          meta={model}
           metrics={[
             {
               icon: "bi-emoji-smile-fill",
@@ -275,8 +277,8 @@ function AIAnalysis() {
               icon: "bi-shield-check",
               tone: "violet",
               label: "AI Confidence",
-              value: aiConfidence.value,
-              sublabel: aiConfidence.label,
+              value: confidence.value,
+              sublabel: confidence.label,
               sublabelTone: "violet",
             },
           ]}

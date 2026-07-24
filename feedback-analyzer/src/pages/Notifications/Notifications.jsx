@@ -1,12 +1,31 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "react-toastify";
 import AppLayout from "../../components/layout/AppLayout";
-import NotificationsHistoryTable from "../../components/tables/NotificationsHistoryTable";
+import DataTable from "../../components/tables/DataTable";
 import Pagination from "../../components/widgets/Pagination";
 import api from "../../services/api";
 import { initialSettings as fallbackSettings, initialLogs as fallbackLogs } from "../../data/notificationsData";
 
 const PAGE_SIZE = 4;
+
+const typeMeta = {
+  email: { label: "Email", tone: "blue" },
+  "in-app": { label: "In-App", tone: "green" },
+  alert: { label: "Alert", tone: "red" },
+  reminder: { label: "Alert", tone: "red" },
+  summary: { label: "Email", tone: "blue" },
+};
+
+const TYPE_OPTIONS = [
+  { value: "email", label: "Email" },
+  { value: "in-app", label: "In-App" },
+  { value: "alert", label: "Alert" },
+];
+
+const READ_OPTIONS = [
+  { value: "unread", label: "Unread" },
+  { value: "read", label: "Read" },
+];
 
 const recipientOptions = [
   "Karthik S (Trainer)",
@@ -25,24 +44,38 @@ function Notifications() {
   const [totalItems, setTotalItems] = useState(fallbackLogs.length);
   const [totalPages, setTotalPages] = useState(1);
   const [summaryMetrics, setSummaryMetrics] = useState({
-    total: 120,
-    unread: 5,
-    alerts: 10,
-    inAppCount: 54,
-    emailCount: 40,
-    alertCount: 10,
+    total: 0,
+    unread: 0,
+    alerts: 0,
+    inAppCount: 0,
+    emailCount: 0,
+    alertCount: 0,
   });
 
-  const [filterTab, setFilterTab] = useState("all");
+  const [filters, setFilters] = useState({});
+  const [sort, setSort] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Every column filter maps to a server query param so paging stays correct.
+  const queryParams = useMemo(
+    () => ({
+      message: filters.message || undefined,
+      type: filters.type || undefined,
+      read: filters.read || undefined,
+      startDate: filters.time?.from || undefined,
+      endDate: filters.time?.to || undefined,
+      sortBy: sort ? `${sort.key}-${sort.dir}` : undefined,
+    }),
+    [filters, sort]
+  );
 
   // Fetch notifications list and summary
   const fetchNotificationsData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [logsRes, summaryRes, prefsRes] = await Promise.allSettled([
-        api.getNotifications({ filterTab, page: currentPage, limit: PAGE_SIZE }),
+        api.getNotifications({ ...queryParams, page: currentPage, limit: PAGE_SIZE }),
         api.getNotificationsSummary(),
         api.getNotificationPreferences(),
       ]);
@@ -63,7 +96,7 @@ function Notifications() {
     } finally {
       setIsLoading(false);
     }
-  }, [filterTab, currentPage]);
+  }, [queryParams, currentPage]);
 
   useEffect(() => {
     fetchNotificationsData();
@@ -119,86 +152,151 @@ function Notifications() {
     }
   };
 
+  const columns = useMemo(
+    () => [
+      {
+        key: "message",
+        label: "Notification",
+        filter: { type: "text", placeholder: "Message contains…" },
+        render: (row) => (
+          <div className="d-flex align-items-center gap-3">
+            <span
+              className={`activity-list__icon activity-list__icon--${row.tone || "blue"}`}
+              style={{ width: "32px", height: "32px", fontSize: "0.9rem" }}
+            >
+              <i className={`bi ${row.icon || "bi-bell-fill"}`} />
+            </span>
+            <span
+              className="notification-message-text"
+              style={{
+                fontWeight: row.read ? 400 : 600,
+                color: row.read ? "var(--color-text-secondary)" : "var(--color-text-primary)",
+                fontSize: "0.86rem",
+              }}
+            >
+              {row.message}
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: "type",
+        label: "Type",
+        width: "120px",
+        filter: { type: "select", options: TYPE_OPTIONS, anyLabel: "All Types" },
+        render: (row) => {
+          const meta = typeMeta[row.type] || typeMeta["in-app"];
+          return <span className={`badge-pill badge-pill--${meta.tone}`}>{meta.label}</span>;
+        },
+      },
+      {
+        key: "read",
+        label: "Status",
+        width: "110px",
+        accessor: (row) => (row.read ? "read" : "unread"),
+        filter: { type: "select", options: READ_OPTIONS, anyLabel: "Read & Unread" },
+        render: (row) => (
+          <span className={`badge-pill badge-pill--${row.read ? "green" : "amber"}`}>
+            {row.read ? "Read" : "Unread"}
+          </span>
+        ),
+      },
+      {
+        key: "time",
+        label: "Time",
+        width: "140px",
+        accessor: (row) => row.createdAt,
+        sortType: "date",
+        filter: { type: "date", label: "Received" },
+        cellStyle: { fontSize: "0.82rem", color: "var(--color-text-secondary)" },
+        render: (row) => row.time,
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        sortable: false,
+        width: "100px",
+        headerClassName: "data-table__actions-col",
+        render: (row) => (
+          <div className="data-table__actions">
+            <button
+              type="button"
+              className="table-icon-btn"
+              aria-label={row.read ? "Mark as unread" : "Mark as read"}
+              title={row.read ? "Mark as unread" : "Mark as read"}
+              onClick={() => handleToggleRead(row.id)}
+            >
+              <i className={`bi ${row.read ? "bi-envelope" : "bi-envelope-open"}`} />
+            </button>
+            <button
+              type="button"
+              className="table-icon-btn"
+              aria-label="Delete notification"
+              title="Delete notification"
+              style={{ color: "var(--color-danger)" }}
+              onClick={() => handleDelete(row.id)}
+            >
+              <i className="bi bi-trash" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    []
+  );
+
   return (
     <AppLayout title="Notifications">
-      {/* Top Filter Tabs Bar */}
-      <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
-        <div className="notifications-filter-bar">
-          <button
-            type="button"
-            className={`notifications-filter-btn ${filterTab === "all" ? "notifications-filter-btn--active" : ""}`}
-            onClick={() => { setFilterTab("all"); setCurrentPage(1); }}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            className={`notifications-filter-btn ${filterTab === "unread" ? "notifications-filter-btn--active" : ""}`}
-            onClick={() => { setFilterTab("unread"); setCurrentPage(1); }}
-          >
-            Unread
-          </button>
-          <button
-            type="button"
-            className={`notifications-filter-btn ${filterTab === "email" ? "notifications-filter-btn--active" : ""}`}
-            onClick={() => { setFilterTab("email"); setCurrentPage(1); }}
-          >
-            Email
-          </button>
-          <button
-            type="button"
-            className={`notifications-filter-btn ${filterTab === "in-app" ? "notifications-filter-btn--active" : ""}`}
-            onClick={() => { setFilterTab("in-app"); setCurrentPage(1); }}
-          >
-            In-App
-          </button>
-          <button
-            type="button"
-            className={`notifications-filter-btn ${filterTab === "alert" ? "notifications-filter-btn--active" : ""}`}
-            onClick={() => { setFilterTab("alert"); setCurrentPage(1); }}
-          >
-            Alerts
-          </button>
-        </div>
-
-        <div className="d-flex align-items-center gap-3">
-          <button
-            type="button"
-            className="btn bg-transparent border-0 text-primary fw-semibold p-0"
-            style={{ fontSize: "0.85rem", cursor: "pointer", textDecoration: "none" }}
-            onClick={handleMarkAllAsRead}
-          >
-            Mark all as read
-          </button>
-        </div>
-      </div>
-
       {/* Main Layout Grid */}
       <div className="row g-4">
         {/* Left Column: Notification Table List */}
         <div className="col-lg-8">
           <div className="panel p-0 overflow-hidden" style={{ background: "#fff", border: "1px solid var(--color-border)" }}>
-            {isLoading ? (
-              <div className="p-4 text-center text-muted">
-                <div className="spinner-border text-primary me-2" role="status" />
-                <span>Loading notifications...</span>
-              </div>
-            ) : (
-              <>
-                <NotificationsHistoryTable
-                  rows={logs}
-                  onToggleRead={handleToggleRead}
-                  onDelete={handleDelete}
-                />
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={setCurrentPage}
-                  totalItems={totalItems}
-                  pageSize={PAGE_SIZE}
-                />
-              </>
-            )}
+            <DataTable
+              title="Notification History"
+              count={totalItems}
+              columns={columns}
+              rows={logs}
+              isLoading={isLoading}
+              getRowKey={(row) => row.id}
+              emptyTitle="No notifications"
+              emptyMessage="No notifications match your filters."
+              rowStyle={(row) => ({
+                background: row.read ? "transparent" : "rgba(37, 99, 235, 0.02)",
+                borderLeft: `3px solid ${row.read ? "transparent" : "var(--color-primary)"}`,
+              })}
+              filters={filters}
+              onFiltersChange={(next) => {
+                setFilters(next);
+                setCurrentPage(1);
+              }}
+              sort={sort}
+              onSortChange={(next) => {
+                setSort(next);
+                setCurrentPage(1);
+              }}
+              toolbarActions={
+                <button
+                  type="button"
+                  className="btn bg-transparent border-0 text-primary fw-semibold p-0 px-2"
+                  style={{ fontSize: "0.8rem", cursor: "pointer" }}
+                  onClick={handleMarkAllAsRead}
+                >
+                  Mark all as read
+                </button>
+              }
+              footer={
+                !isLoading ? (
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                    totalItems={totalItems}
+                    pageSize={PAGE_SIZE}
+                  />
+                ) : null
+              }
+            />
           </div>
         </div>
 

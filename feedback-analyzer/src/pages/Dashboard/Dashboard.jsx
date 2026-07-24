@@ -47,18 +47,20 @@ function Dashboard() {
   const [appreciatedTopics, setAppreciatedTopics] = useState(fallbackTopAppreciatedTopics);
   const [improvementTopics, setImprovementTopics] = useState(fallbackTopImprovementAreas);
   const [recentList, setRecentList] = useState(fallbackRecentFeedback);
+  const [aiSummary, setAiSummary] = useState(aiSummaryText);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadDashboardData() {
       try {
-        const [statsRes, trendsRes, sentimentRes, topicsRes, recentRes] = await Promise.allSettled([
+        const [statsRes, trendsRes, sentimentRes, topicsRes, recentRes, summaryRes] = await Promise.allSettled([
           api.getDashboardStats(),
           api.getDashboardTrends(),
           api.getSentimentDistribution(),
           api.getTopTopics(),
           api.getRecentFeedback(),
+          api.getAiDashboardSummary(),
         ]);
 
         if (isMounted) {
@@ -70,6 +72,9 @@ function Dashboard() {
             setImprovementTopics(topicsRes.value.data.improvement || fallbackTopImprovementAreas);
           }
           if (recentRes.status === "fulfilled" && recentRes.value.data) setRecentList(recentRes.value.data);
+          if (summaryRes.status === "fulfilled" && summaryRes.value.data?.text) {
+            setAiSummary(summaryRes.value.data.text);
+          }
         }
       } catch (err) {
         console.error("Dashboard API error:", err);
@@ -128,9 +133,7 @@ function Dashboard() {
         <div className="panel trend-card">
           <div className="panel-header">
             <h2 className="panel-header__title">Feedback Trend</h2>
-            <button type="button" className="panel-header__select">
-              Monthly <i className="bi bi-chevron-down" />
-            </button>
+            <span className="panel-header__badge">This year</span>
           </div>
           <FeedbackTrendChart data={trendsData} />
         </div>
@@ -143,7 +146,7 @@ function Dashboard() {
           <SentimentLegend data={sentimentData} />
         </div>
 
-        <AISummaryCard text={aiSummaryText} ctaLabel="View Full Summary" />
+        <AISummaryCard text={aiSummary} ctaLabel="View Full Summary" onCtaClick={() => navigate("/ai-analysis")} />
       </div>
 
       {/* Ranked lists and recent feedback */}

@@ -1,10 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "react-toastify";
 import AppLayout from "../../components/layout/AppLayout";
 import StatCard from "../../components/cards/StatCard";
-import SearchInput from "../../components/common/SearchInput";
-import SelectDropdown from "../../components/common/SelectDropdown";
-import ActionTable from "../../components/tables/ActionTable";
+import DataTable from "../../components/tables/DataTable";
 import Pagination from "../../components/widgets/Pagination";
 import Modal from "../../components/common/Modal";
 import ActionForm from "../../components/forms/ActionForm";
@@ -13,7 +11,7 @@ import SentimentDonutChart from "../../components/charts/SentimentDonutChart";
 import SentimentLegend from "../../components/widgets/SentimentLegend";
 import ActivityList from "../../components/widgets/ActivityList";
 import api from "../../services/api";
-import { priorityOptions, statusOptions, actions as fallbackActions } from "../../data/actionTrackerData";
+import { priorityOptions, statusOptions, actions as fallbackActions } from "../../data/actiontrackerData";
 
 const PAGE_SIZE = 8;
 
@@ -41,6 +39,22 @@ const statusChartLabel = {
   overdue: "Overdue",
 };
 
+const priorityMeta = {
+  high: { label: "High", tone: "red" },
+  medium: { label: "Medium", tone: "amber" },
+  low: { label: "Low", tone: "blue" },
+};
+
+const statusMeta = {
+  open: { label: "Open", tone: "blue" },
+  "in-progress": { label: "In Progress", tone: "violet" },
+  completed: { label: "Completed", tone: "green" },
+  overdue: { label: "Overdue", tone: "red" },
+};
+
+// The shared filter panel uses "" for "any", so the "all" sentinel is dropped.
+const toFilterOptions = (options) => options.filter((option) => option.value !== "all");
+
 function daysUntil(dateStr) {
   if (!dateStr) return "";
   const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
@@ -62,22 +76,49 @@ function ActionTracker() {
   });
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [filters, setFilters] = useState({});
+  const [sort, setSort] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
 
   const [modalMode, setModalMode] = useState(null);
   const [activeAction, setActiveAction] = useState(null);
   const [formDraft, setFormDraft] = useState(emptyAction);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [assigneeOptions, setAssigneeOptions] = useState(["Karthik S", "Priya N", "Arjun D", "Meera J"]);
+
+  // Load real trainer names for the "Assigned To" selector.
+  useEffect(() => {
+    api
+      .getTrainerFilterOptions()
+      .then((res) => {
+        const names = (res.data?.trainers || []).filter((t) => t.id !== "overall").map((t) => t.name);
+        if (names.length) setAssigneeOptions(names);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Every column filter maps to a server query param so paging stays correct.
+  const queryParams = useMemo(
+    () => ({
+      title: filters.title || undefined,
+      assignedTo: filters.assignedTo || undefined,
+      priority: filters.priority || undefined,
+      status: filters.status || undefined,
+      dueFrom: filters.dueDate?.from || undefined,
+      dueTo: filters.dueDate?.to || undefined,
+      sortBy: sort ? `${sort.key}-${sort.dir}` : undefined,
+    }),
+    [filters, sort]
+  );
 
   const fetchActions = useCallback(async () => {
     setIsLoading(true);
     try {
       const [actionsRes, statsRes] = await Promise.all([
         api.getActions({
-          priority: priorityFilter,
-          status: statusFilter,
+          ...queryParams,
           search: searchTerm,
           page: currentPage,
           limit: PAGE_SIZE,
@@ -94,11 +135,12 @@ function ActionTracker() {
         setStats(statsRes.data);
       }
     } catch (e) {
-      console.error("Fetch actions error:", e);
+      toast.error(e.message || "Failed to load actions.");
+      setActions([]);
     } finally {
       setIsLoading(false);
     }
-  }, [priorityFilter, statusFilter, searchTerm, currentPage]);
+  }, [queryParams, searchTerm, currentPage]);
 
   useEffect(() => {
     fetchActions();
@@ -111,11 +153,19 @@ function ActionTracker() {
     { id: "overdue", label: "Overdue", value: String(stats.overdueCount), icon: "bi-exclamation-triangle-fill", tone: "amber" },
   ];
 
-  function updateFilter(setter) {
-    return (value) => {
-      setter(value);
-      setCurrentPage(1);
-    };
+  function updateFilters(next) {
+    setFilters(next);
+    setCurrentPage(1);
+  }
+
+  function updateSort(next) {
+    setSort(next);
+    setCurrentPage(1);
+  }
+
+  function updateSearch(value) {
+    setSearchTerm(value);
+    setCurrentPage(1);
   }
 
   // Chart data
@@ -159,7 +209,7 @@ function ActionTracker() {
 
   // Modal handlers
   function openAdd() {
-    setFormDraft(emptyAction);
+    setFormDraft({ ...emptyAction, assignedTo: assigneeOptions[0] || "" });
     setModalMode("add");
   }
   function openEdit(action) {
@@ -177,6 +227,20 @@ function ActionTracker() {
   }
 
   async function saveAction() {
+    // Validation
+    if (!formDraft.title || !formDraft.title.trim()) {
+      toast.error("Please enter an action title.");
+      return;
+    }
+    if (!formDraft.assignedTo) {
+      toast.error("Please assign the action to a trainer.");
+      return;
+    }
+    if (!formDraft.dueDate) {
+      toast.error("Please set a due date.");
+      return;
+    }
+    setIsSaving(true);
     try {
       if (modalMode === "add") {
         await api.createAction(formDraft);
@@ -189,8 +253,91 @@ function ActionTracker() {
       fetchActions();
     } catch (e) {
       toast.error(e.message || "Failed to save action.");
+    } finally {
+      setIsSaving(false);
     }
   }
+
+  async function handleDelete(action) {
+    if (!window.confirm(`Delete action "${action.title}"? This cannot be undone.`)) return;
+    setDeletingId(action.id);
+    try {
+      await api.deleteAction(action.id);
+      toast.success("Action deleted.");
+      fetchActions();
+    } catch (e) {
+      toast.error(e.message || "Failed to delete action.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const columns = useMemo(
+    () => [
+      {
+        key: "title",
+        label: "Action",
+        filter: { type: "text", placeholder: "Action title contains…" },
+        render: (row) => <span className="action-cell__title">{row.title}</span>,
+      },
+      {
+        key: "assignedTo",
+        label: "Assigned To",
+        filter: { type: "text", label: "Assignee", placeholder: "Assignee name contains…" },
+      },
+      {
+        key: "priority",
+        label: "Priority",
+        filter: { type: "select", options: toFilterOptions(priorityOptions), anyLabel: "All Priorities" },
+        render: (row) => {
+          const meta = priorityMeta[row.priority] || priorityMeta.medium;
+          return <span className={`badge-pill badge-pill--${meta.tone}`}>{meta.label}</span>;
+        },
+      },
+      {
+        key: "dueDate",
+        label: "Due Date",
+        sortType: "date",
+        filter: { type: "date", label: "Due date" },
+      },
+      {
+        key: "status",
+        label: "Status",
+        filter: { type: "select", options: toFilterOptions(statusOptions), anyLabel: "All Statuses" },
+        render: (row) => {
+          const meta = statusMeta[row.status] || statusMeta.open;
+          return <span className={`badge-pill badge-pill--${meta.tone}`}>{meta.label}</span>;
+        },
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        sortable: false,
+        headerClassName: "data-table__actions-col",
+        render: (row) => (
+          <div className="data-table__actions">
+            <button type="button" className="table-icon-btn" aria-label="View action" onClick={() => openView(row)}>
+              <i className="bi bi-eye" />
+            </button>
+            <button type="button" className="table-icon-btn" aria-label="Edit action" onClick={() => openEdit(row)}>
+              <i className="bi bi-pencil" />
+            </button>
+            <button
+              type="button"
+              className="table-icon-btn"
+              aria-label="Delete action"
+              style={{ color: "var(--color-danger)" }}
+              disabled={deletingId === row.id}
+              onClick={() => handleDelete(row)}
+            >
+              <i className="bi bi-trash" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [deletingId]
+  );
 
   return (
     <AppLayout title="Action Tracker">
@@ -201,50 +348,44 @@ function ActionTracker() {
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="panel repository-toolbar">
-        <SearchInput
-          value={searchTerm}
-          onChange={updateFilter(setSearchTerm)}
-          placeholder="Search by action or assignee..."
-        />
-        <div className="repository-toolbar__filters">
-          <SelectDropdown
-            value={priorityFilter}
-            onChange={updateFilter(setPriorityFilter)}
-            options={priorityOptions}
-          />
-          <SelectDropdown
-            value={statusFilter}
-            onChange={updateFilter(setStatusFilter)}
-            options={statusOptions}
-          />
-          <button type="button" className="btn-primary-pill" onClick={openAdd}>
-            <i className="bi bi-plus-lg" />
-            <span>Add Action</span>
-          </button>
-        </div>
-      </div>
-
       {/* Table + pagination */}
-      <div className="panel repository-table-card">
-        {isLoading ? (
-          <div className="p-4 text-center text-muted">
-            <div className="spinner-border text-primary me-2" role="status" />
-            <span>Loading actions...</span>
-          </div>
-        ) : (
-          <>
-            <ActionTable rows={actions} onView={openView} onEdit={openEdit} />
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-              totalItems={totalItems}
-              pageSize={PAGE_SIZE}
-            />
-          </>
-        )}
+      <div className="panel repository-table-card p-0 overflow-hidden">
+        <DataTable
+          title="Action Items"
+          count={totalItems}
+          columns={columns}
+          rows={actions}
+          isLoading={isLoading}
+          getRowKey={(row) => row.id}
+          emptyTitle="No actions found"
+          emptyMessage="No actions match your filters."
+          search={{
+            value: searchTerm,
+            onChange: updateSearch,
+            placeholder: "Search by action or assignee…",
+          }}
+          filters={filters}
+          onFiltersChange={updateFilters}
+          sort={sort}
+          onSortChange={updateSort}
+          toolbarActions={
+            <button type="button" className="btn-primary-pill" onClick={openAdd}>
+              <i className="bi bi-plus-lg" />
+              <span>Add Action</span>
+            </button>
+          }
+          footer={
+            !isLoading ? (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                totalItems={totalItems}
+                pageSize={PAGE_SIZE}
+              />
+            ) : null
+          }
+        />
       </div>
 
       {/* Chart + activity lists */}
@@ -281,16 +422,16 @@ function ActionTracker() {
           onClose={closeModal}
           footer={
             <>
-              <button type="button" className="btn-secondary" onClick={closeModal}>
+              <button type="button" className="btn-secondary" onClick={closeModal} disabled={isSaving}>
                 Cancel
               </button>
-              <button type="button" className="btn-primary" onClick={saveAction}>
-                Save Action
+              <button type="button" className="btn-primary" onClick={saveAction} disabled={isSaving}>
+                {isSaving ? "Saving…" : "Save Action"}
               </button>
             </>
           }
         >
-          <ActionForm value={formDraft} onChange={setFormDraft} />
+          <ActionForm value={formDraft} onChange={setFormDraft} assigneeOptions={assigneeOptions} />
         </Modal>
       )}
 

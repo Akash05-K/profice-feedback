@@ -1,7 +1,12 @@
 import { Router } from "express";
 import * as reportsController from "../controllers/reports.controller.js";
+import { authenticate, requireCapability } from "../middleware/auth.js";
+import { CAPABILITIES } from "../config/permissions.js";
 
 const router = Router();
+
+router.use(authenticate);
+router.use(requireCapability(CAPABILITIES.VIEW_REPORTS));
 
 router.get("/", reportsController.getReport);
 router.get("/data", reportsController.getReport);

@@ -59,3 +59,22 @@ export const loginUser = async ({ email, password }) => {
   const { passwordHash, ...userWithoutPassword } = user;
   return { user: userWithoutPassword, token };
 };
+
+/**
+ * Resolve the Trainer data-entity that a logged-in trainer User maps to.
+ *
+ * The login `User` table and the data-entity `Trainer` table have no FK, so we
+ * link them by email (case-insensitive). Used to scope trainers to ONLY their own
+ * feedback/insights/chat context. Returns the Trainer id or null (non-trainer, or
+ * no matching trainer record).
+ */
+export const resolveTrainerScope = async (user) => {
+  if (!user || user.role !== "trainer" || !user.email) return null;
+
+  const trainer = await prisma.trainer.findFirst({
+    where: { email: { equals: user.email } },
+    select: { id: true, name: true },
+  });
+
+  return trainer ? trainer.id : null;
+};

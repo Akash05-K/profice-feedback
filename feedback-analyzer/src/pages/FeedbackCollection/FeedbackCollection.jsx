@@ -1,184 +1,165 @@
-import { useState } from "react";
-import { toast } from "react-toastify";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import AppLayout from "../../components/layout/AppLayout";
+import DataTable from "../../components/tables/DataTable";
 import StatCard from "../../components/cards/StatCard";
-import {
-  feedbackCollectionSummary,
-  mockBatches,
-  mockCourses,
-  mockTrainers,
-  predefinedTemplates,
-  mockRecentCampaigns,
-  mockLmsIntegrations,
-  mockEmailCampaignLogs,
-} from "../../data/feedbackCollectionData";
+import api from "../../services/api";
 
 function FeedbackCollection() {
-  const [activeTab, setActiveTab] = useState("builder");
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("import");
+  const [sessions, setSessions] = useState([]);
+  const [stats, setStats] = useState(null);
 
-  const [campaigns, setCampaigns] = useState(mockRecentCampaigns);
+  useEffect(() => {
+    let mounted = true;
+    Promise.allSettled([api.getUploadSessions(), api.getFeedbackStats()]).then(([sRes, stRes]) => {
+      if (!mounted) return;
+      if (sRes.status === "fulfilled" && sRes.value.data) setSessions(sRes.value.data);
+      if (stRes.status === "fulfilled" && stRes.value.data) setStats(stRes.value.data);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const totalCollected = stats ? stats.total : 0;
+  const positiveRate = stats && stats.total ? Math.round((stats.positive / stats.total) * 100) : 0;
+
+  const summaryCards = [
+    { id: "collected", label: "Feedback Collected", value: String(totalCollected), icon: "bi-inbox-fill", tone: "violet", subtext: "Total records" },
+    { id: "campaigns", label: "Import Campaigns", value: String(sessions.length), icon: "bi-collection-fill", tone: "blue", subtext: "Files processed" },
+    { id: "positive", label: "Positive Rate", value: `${positiveRate}%`, icon: "bi-emoji-smile-fill", tone: "green", subtext: "Of all feedback" },
+    { id: "avg", label: "Average Rating", value: stats ? String(stats.avgRating) : "0.0", valueSuffix: "/ 5", icon: "bi-star-fill", tone: "amber", subtext: "Across campaigns" },
+  ];
+
+  const tabs = [
+    { id: "import", label: "File Import (CSV/XLS)", icon: "bi-file-earmark-arrow-up" },
+    { id: "builder", label: "Form Builder", icon: "bi-file-earmark-plus" },
+    { id: "email", label: "Email Campaigns", icon: "bi-envelope-at" },
+    { id: "qr", label: "QR & Links", icon: "bi-qr-code-scan" },
+  ];
+
+  const campaignColumns = useMemo(
+    () => [
+      {
+        key: "filename",
+        label: "Campaign / File",
+        filter: { type: "text", label: "Campaign / File", placeholder: "Filename contains\u2026" },
+        className: "fw-semibold",
+      },
+      {
+        key: "channel",
+        label: "Channel",
+        accessor: () => "File Import",
+        filter: { type: "select" },
+        render: () => (
+          <span className="d-flex align-items-center gap-1">
+            <i className="bi bi-file-earmark-spreadsheet" /> File Import
+          </span>
+        ),
+      },
+      {
+        key: "records",
+        label: "Records",
+        accessor: (row) => row.processedRows ?? row.totalRows,
+        sortType: "number",
+        filter: { type: "number", label: "Records" },
+        className: "fw-bold",
+        render: (row) => `${row.processedRows ?? row.totalRows} / ${row.totalRows}`,
+      },
+      {
+        key: "status",
+        label: "Status",
+        filter: { type: "select" },
+        render: (row) => (
+          <span
+            className={`badge-pill badge-pill--${row.status === "completed" ? "green" : row.status === "failed" ? "red" : "amber"}`}
+          >
+            {row.status}
+          </span>
+        ),
+      },
+      {
+        key: "createdAt",
+        label: "Created Date",
+        sortType: "date",
+        filter: { type: "date", label: "Created date" },
+        render: (row) => new Date(row.createdAt).toISOString().slice(0, 10),
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        sortable: false,
+        headerClassName: "data-table__actions-col",
+        render: () => (
+          <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => navigate("/ai-analysis")}>
+            Analyze
+          </button>
+        ),
+      },
+    ],
+    [navigate]
+  );
+
   return (
     <AppLayout title="Feedback Collection">
-      {/* 1. Summary KPIs Row */}
       <div className="stat-card-grid stat-card-grid--three">
-        {feedbackCollectionSummary.map((card) => (
+        {summaryCards.map((card) => (
           <StatCard key={card.id} {...card} />
         ))}
       </div>
 
-      {/* 2. Main Collection Workspace (Tabbed panel) */}
       <div className="panel my-4">
         <div className="collection-tabs">
-          <button
-            type="button"
-            className={`collection-tab-btn ${activeTab === "builder" ? "collection-tab-btn--active" : ""}`}
-            onClick={() => setActiveTab("builder")}
-          >
-            <i className="bi bi-file-earmark-plus me-2" />
-            Form Builder
-          </button>
-          <button
-            type="button"
-            className={`collection-tab-btn ${activeTab === "email" ? "collection-tab-btn--active" : ""}`}
-            onClick={() => setActiveTab("email")}
-          >
-            <i className="bi bi-envelope-at me-2" />
-            Email Campaigns
-          </button>
-          <button
-            type="button"
-            className={`collection-tab-btn ${activeTab === "qr" ? "collection-tab-btn--active" : ""}`}
-            onClick={() => setActiveTab("qr")}
-          >
-            <i className="bi bi-qr-code-scan me-2" />
-            QR & Links
-          </button>
-          <button
-            type="button"
-            className={`collection-tab-btn ${activeTab === "import" ? "collection-tab-btn--active" : ""}`}
-            onClick={() => setActiveTab("import")}
-          >
-            <i className="bi bi-file-earmark-arrow-up me-2" />
-            File Import (CSV/XLS)
-          </button>
-          <button
-            type="button"
-            className={`collection-tab-btn ${activeTab === "integrations" ? "collection-tab-btn--active" : ""}`}
-            onClick={() => setActiveTab("integrations")}
-          >
-            <i className="bi bi-cpu-fill me-2" />
-            LMS Sync Settings
-          </button>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`collection-tab-btn ${activeTab === t.id ? "collection-tab-btn--active" : ""}`}
+              onClick={() => setActiveTab(t.id)}
+            >
+              <i className={`bi ${t.icon} me-2`} />
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* TAB: FORM BUILDER */}
-        {activeTab === "builder" && (
-          <div className="border border-dashed rounded p-5 text-center text-secondary">
-            <h3 className="fs-5 fw-bold mb-0">form builder</h3>
+        {activeTab === "import" ? (
+          <div className="p-4 text-center">
+            <i className="bi bi-cloud-arrow-up" style={{ fontSize: "2.5rem", color: "var(--color-primary)" }} />
+            <h3 className="fs-5 fw-bold mt-3 mb-1">Import feedback from a spreadsheet</h3>
+            <p className="text-secondary mb-3" style={{ fontSize: "0.9rem" }}>
+              Upload a .xlsx/.csv file to collect and AI-analyze feedback in one step.
+            </p>
+            <button type="button" className="btn-primary" onClick={() => navigate("/ai-analysis", { state: { triggerUpload: true } })}>
+              <i className="bi bi-upload me-2" />
+              Go to Upload &amp; Analyze
+            </button>
           </div>
-        )}
-
-        {/* TAB: EMAIL CAMPAIGNS */}
-        {activeTab === "email" && (
-          <div className="border border-dashed rounded p-5 text-center text-secondary">
-            <h3 className="fs-5 fw-bold mb-0">email</h3>
-          </div>
-        )}
-
-        {/* TAB: QR CODE & LINKS */}
-        {activeTab === "qr" && (
-          <div className="border border-dashed rounded p-5 text-center text-secondary">
-            <h3 className="fs-5 fw-bold mb-0">QR and Links</h3>
-          </div>
-        )}
-
-        {/* TAB: CSV IMPORT */}
-        {activeTab === "import" && (
-          <div className="border border-dashed rounded p-5 text-center text-secondary">
-            <h3 className="fs-5 fw-bold mb-0">File import (CSV/XLS)</h3>
-          </div>
-        )}
-
-        {/* TAB: LMS INTEGRATION */}
-        {activeTab === "integrations" && (
-          <div className="border border-dashed rounded p-5 text-center text-secondary">
-            <h3 className="fs-5 fw-bold mb-0">LMS Sync Settings</h3>
+        ) : (
+          <div className="border border-dashed rounded p-5 text-center text-secondary m-3">
+            <i className="bi bi-tools" style={{ fontSize: "1.8rem" }} />
+            <h3 className="fs-6 fw-bold mt-2 mb-0">{tabs.find((t) => t.id === activeTab)?.label}</h3>
+            <p className="mb-0" style={{ fontSize: "0.85rem" }}>This collection channel is not configured yet.</p>
           </div>
         )}
       </div>
 
-      {/* 3. Recent Campaigns History Table */}
-      <div className="panel">
-        <div className="panel-header">
-          <h2 className="panel-header__title">
-            <i className="bi bi-clock-history me-2" />
-            Recent Feedback Collection Campaigns
-          </h2>
-        </div>
-
-        <div className="table-panel">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Survey Name</th>
-                <th>Channel</th>
-                <th>Target Mapping Details</th>
-                <th>Responses</th>
-                <th>Status</th>
-                <th>Created Date</th>
-                <th className="data-table__actions-col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {campaigns.map((camp) => (
-                <tr key={camp.id}>
-                  <td className="fw-semibold">{camp.title}</td>
-                  <td>
-                    <span className="d-flex align-items-center gap-1">
-                      <i className={`bi ${
-                        camp.channel === "Email" ? "bi-envelope" :
-                        camp.channel === "QR Code" ? "bi-qr-code" :
-                        camp.channel === "LMS Sync" ? "bi-mortarboard" : "bi-file-earmark-spreadsheet"
-                      }`} />
-                      {camp.channel}
-                    </span>
-                  </td>
-                  <td className="fs-7 text-secondary">{camp.target}</td>
-                  <td className="fw-bold">{camp.responsesCount} / {camp.totalCount}</td>
-                  <td>
-                    <span className={`badge-pill badge-pill--${
-                      camp.status === "active" ? "green" :
-                      camp.status === "completed" ? "blue" : "amber"
-                    }`}>
-                      {camp.status}
-                    </span>
-                  </td>
-                  <td>{camp.date}</td>
-                  <td>
-                    <div className="d-flex gap-2">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-secondary"
-                        onClick={() => handleToggleCampaignStatus(camp.id)}
-                      >
-                        {camp.status === "active" ? "Pause" : "Activate"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-primary"
-                        onClick={() => toast.success(`Reminders sent for campaign: ${camp.title}`)}
-                        disabled={camp.status !== "active"}
-                      >
-                        Remind
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="panel p-0 overflow-hidden">
+        <DataTable
+          title="Recent Feedback Collection Campaigns"
+          icon="bi-clock-history"
+          count={sessions.length}
+          columns={campaignColumns}
+          rows={sessions}
+          getRowKey={(row) => row.id}
+          emptyTitle="No collection campaigns yet"
+          emptyMessage="Import a feedback file to start."
+          search={{ placeholder: "Search campaigns…" }}
+        />
       </div>
+
     </AppLayout>
   );
 }

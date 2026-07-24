@@ -1,6 +1,6 @@
 import MetricMiniCard from "./MetricMiniCard";
 
-function AISummaryCard({ text, ctaLabel, metrics, meta }) {
+function AISummaryCard({ text, ctaLabel, metrics, meta, onCtaClick }) {
   return (
     <div className="panel ai-summary-card">
       <div className="panel-header">
@@ -23,7 +23,7 @@ function AISummaryCard({ text, ctaLabel, metrics, meta }) {
       ) : null}
 
       {ctaLabel ? (
-        <button type="button" className="btn-primary-block">
+        <button type="button" className="btn-primary-block" onClick={onCtaClick} disabled={!onCtaClick}>
           {ctaLabel}
         </button>
       ) : null}
@@ -31,7 +31,7 @@ function AISummaryCard({ text, ctaLabel, metrics, meta }) {
       {meta ? (
         <div className="ai-summary-card__meta">
           <span>AI Model: {meta.model}</span>
-          <span>Generated on {meta.generatedOn}</span>
+          {meta.generatedOn ? <span>Generated on {meta.generatedOn}</span> : null}
         </div>
       ) : null}
     </div>

@@ -3,20 +3,14 @@ import AppLayout from "../../components/layout/AppLayout";
 import StatCard from "../../components/cards/StatCard";
 import SelectDropdown from "../../components/common/SelectDropdown";
 import ProfileBanner from "../../components/widgets/ProfileBanner";
-import MetricComparisonChart from "../../components/charts/MetricComparisonChart";
+import MonthlyRatingChart from "../../components/charts/MonthlyRatingChart";
 import RecommendedActions from "../../components/widgets/RecommendedActions";
 import api from "../../services/api";
 
 const statCardsConfig = [
-  { key: "courseRating", label: "Course Rating", icon: "bi-award-fill", tone: "violet" },
-  { key: "contentRating", label: "Content Rating", icon: "bi-journal-richtext", tone: "blue" },
-  { key: "practicalRating", label: "Practical Session Rating", icon: "bi-tools", tone: "green" },
-];
-
-const trendSeries = [
-  { key: "course", label: "Course Rating", color: "#bcbdcf" },
-  { key: "content", label: "Content Rating", color: "#6a8ad0" },
-  { key: "practical", label: "Practical Rating", color: "#afd9bf" },
+  { key: "courseRating", label: "Course Rating", icon: "bi-award-fill", tone: "violet", suffix: "/ 5" },
+  { key: "satisfactionRate", label: "Satisfaction", icon: "bi-emoji-smile-fill", tone: "green", suffix: "%" },
+  { key: "positiveRate", label: "Positive Sentiment", icon: "bi-hand-thumbs-up-fill", tone: "blue", suffix: "%" },
 ];
 
 function CourseInsights() {
@@ -28,8 +22,8 @@ function CourseInsights() {
   
   const [metrics, setMetrics] = useState({
     courseRating: 0,
-    contentRating: 0,
-    practicalRating: 0,
+    satisfactionRate: 0,
+    positiveRate: 0,
     enrolledStudents: 0,
     monthlyTrend: [],
     improvementSuggestions: [],
@@ -81,7 +75,7 @@ function CourseInsights() {
     icon: config.icon,
     tone: config.tone,
     value: String(metrics[config.key] ?? 0),
-    valueSuffix: "/ 5",
+    valueSuffix: config.suffix,
   }));
 
   return (
@@ -125,7 +119,7 @@ function CourseInsights() {
           <div className="panel-header">
             <h2 className="panel-header__title">Rating Trend</h2>
           </div>
-          <MetricComparisonChart data={metrics.monthlyTrend || []} series={trendSeries} />
+          <MonthlyRatingChart data={metrics.monthlyTrend || []} />
         </div>
       </div>
 

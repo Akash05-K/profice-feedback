@@ -1,4 +1,5 @@
-function RecommendedActions({ title, icon, actions, ctaLabel, ctaIcon }) {
+function RecommendedActions({ title, icon, actions, ctaLabel, ctaIcon, onCtaClick }) {
+  const items = Array.isArray(actions) ? actions : [];
   return (
     <div className="panel recommended-actions-card">
       <div className="panel-header">
@@ -10,17 +11,21 @@ function RecommendedActions({ title, icon, actions, ctaLabel, ctaIcon }) {
         </h2>
       </div>
 
-      <ul className="recommended-actions-list">
-        {actions.map((action, index) => (
-          <li key={index} className="recommended-actions-list__item">
-            <i className="bi bi-check-circle-fill recommended-actions-list__check" />
-            <span>{action}</span>
-          </li>
-        ))}
-      </ul>
+      {items.length === 0 ? (
+        <p className="recommended-actions-empty">No recommendations for this selection yet.</p>
+      ) : (
+        <ul className="recommended-actions-list">
+          {items.map((action, index) => (
+            <li key={index} className="recommended-actions-list__item">
+              <i className="bi bi-check-circle-fill recommended-actions-list__check" />
+              <span>{action}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {ctaLabel ? (
-        <button type="button" className="btn-primary-block">
+        <button type="button" className="btn-primary-block" onClick={onCtaClick} disabled={!onCtaClick}>
           {ctaLabel}
           {ctaIcon ? <i className={`bi ${ctaIcon}`} /> : null}
         </button>

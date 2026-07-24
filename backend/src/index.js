@@ -16,6 +16,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import actionsRoutes from "./routes/actions.routes.js";
 import notificationsRoutes from "./routes/notifications.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import aiRoutes from "./routes/ai.routes.js";
 
 // Jobs
 import { startOverdueCheckerJob } from "./jobs/overdueChecker.js";
@@ -45,6 +46,7 @@ app.use("/api/v1/reports", reportsRoutes);
 app.use("/api/v1/actions", actionsRoutes);
 app.use("/api/v1/notifications", notificationsRoutes);
 app.use("/api/v1/upload", uploadRoutes);
+app.use("/api/v1/ai", aiRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

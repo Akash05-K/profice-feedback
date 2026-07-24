@@ -28,6 +28,39 @@ async function main() {
   });
   console.log(`✅ Admin user created: ${admin.email}`);
 
+  // 1b. Demo users for every RBAC role (password shown for local testing only).
+  // The trainer user's email matches a seeded Trainer record so data-scoping works.
+  const demoUsers = [
+    { email: "management@profice.edu", name: "Maya Management", role: "management", password: "manage123" },
+    { email: "pm@profice.edu", name: "Pavan Program-Manager", role: "program_manager", password: "pm123" },
+    { email: "acelead@profice.edu", name: "Asha ACE-Lead", role: "ace_lead", password: "ace123" },
+    // Linked by email to the seeded Trainer "Dr. Kumar" (who has feedback) so trainer scoping is demoable.
+    { email: "dr.kumar@psgtech.ac.in", name: "Dr. Kumar", role: "trainer", password: "trainer123" },
+  ];
+
+  for (const u of demoUsers) {
+    const hash = await bcrypt.hash(u.password, 10);
+    await prisma.user.upsert({
+      where: { email: u.email },
+      update: { role: u.role, name: u.name, passwordHash: hash },
+      create: {
+        email: u.email,
+        name: u.name,
+        passwordHash: hash,
+        role: u.role,
+        notificationPreferences: {
+          create: {
+            emailEnabled: true,
+            inAppEnabled: true,
+            remindersEnabled: true,
+            weeklySummaryEnabled: true,
+          },
+        },
+      },
+    });
+    console.log(`✅ Demo ${u.role} user: ${u.email} / ${u.password}`);
+  }
+
   // 2. Create Colleges
   const psg = await prisma.college.upsert({
     where: { name: "PSG College of Technology" },
