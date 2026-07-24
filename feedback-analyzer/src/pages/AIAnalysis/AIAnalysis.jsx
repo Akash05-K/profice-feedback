@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import * as XLSX from "xlsx";
 import { toast } from "react-toastify";
 import api from "../../services/api";
 import AppLayout from "../../components/layout/AppLayout";
+import SelectDropdown from "../../components/common/SelectDropdown";
+
+
 import SentimentDonutChart from "../../components/charts/SentimentDonutChart";
 import SentimentLegend from "../../components/widgets/SentimentLegend";
 import CapabilityCard from "../../components/widgets/CapabilityCard";
@@ -28,12 +30,55 @@ const capabilities = [
 ];
 
 function AIAnalysis() {
+
+
   const location = useLocation();
   const fileInputRef = useRef(null);
   const [analyzedCount, setAnalyzedCount] = useState(totalAnalyzed);
   const [sentimentData, setSentimentData] = useState(overallSentiment);
   const [keywords, setKeywords] = useState(topKeywords);
   const [actions, setActions] = useState(recommendedActions);
+
+  const [sessions, setSessions] = useState([]);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+
+  const loadSessions = async (autoSelectId = null) => {
+    try {
+      const res = await api.getUploadSessions();
+      if (res.data && res.data.length > 0) {
+        setSessions(res.data);
+        const targetId = autoSelectId || res.data[0].id;
+        setSelectedSessionId(String(targetId));
+      }
+    } catch (e) {
+      console.error("Failed to load upload sessions:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
+  const loadSessionAnalysis = async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      const res = await api.getUploadSessionAnalysis(sessionId);
+      if (res.data) {
+        setAnalyzedCount(res.data.analyzedCount);
+        if (res.data.sentimentData) setSentimentData(res.data.sentimentData);
+        if (res.data.keywords) setKeywords(res.data.keywords);
+        if (res.data.actions) setActions(res.data.actions);
+      }
+    } catch (e) {
+      console.error("Failed to load session analysis:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedSessionId) {
+      loadSessionAnalysis(selectedSessionId);
+    }
+  }, [selectedSessionId]);
 
   const handleUploadClick = () => {
     fileInputRef.current.click();
@@ -59,20 +104,16 @@ function AIAnalysis() {
       const res = await api.uploadExcel(file);
       const data = res.data;
 
-      setAnalyzedCount(data.analyzedCount);
-      if (data.sentimentData) {
-        setSentimentData(data.sentimentData);
-      }
-      if (data.actions && data.actions.length > 0) {
-        setActions(data.actions);
-      }
-
       toast.update(toastId, {
         render: `Successfully saved ${data.analyzedCount} feedback records to MySQL!`,
         type: "success",
         isLoading: false,
         autoClose: 4000,
       });
+
+      if (data.uploadSessionId) {
+        await loadSessions(data.uploadSessionId);
+      }
     } catch (err) {
       toast.update(toastId, {
         render: err.message || "Failed to upload feedback file.",
@@ -86,29 +127,91 @@ function AIAnalysis() {
     }
   };
 
+  const defaultSessionOptions = [
+    { value: "demo-1", label: "feedback_july_2026.xlsx" },
+    { value: "demo-2", label: "trainer_feedback_batchA.xlsx" },
+    { value: "demo-3", label: "student_feedback_summary.xlsx" },
+    { value: "demo-4", label: "feedback_june_2026.xlsx" },
+    { value: "demo-5", label: "batchB_feedback.xlsx" },
+  ];
+
+  const sessionOptions = sessions.length > 0
+    ? sessions.map((s) => ({
+        value: String(s.id),
+        label: s.filename,
+      }))
+    : defaultSessionOptions;
+
+  const dropdownOptions = [
+    { value: "", label: "Select an uploaded file" },
+    ...sessionOptions,
+  ];
+
   return (
     <AppLayout title="AI Analysis">
-      {/* Top Left Excel Upload Action */}
-      <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
-        <div className="d-flex align-items-center gap-3">
-          <button
-            type="button"
-            className="btn btn-outline-success d-flex align-items-center gap-2 rounded-pill px-3 py-1.5"
-            style={{ fontSize: "0.85rem", fontWeight: "600", borderColor: "#16A34A", color: "#16A34A" }}
-            onClick={handleUploadClick}
+      {/* Modern, Minimal Top Section: Compact File Upload (Left) & Already Uploaded Files (Right) */}
+      <div className="panel mb-4 p-3" style={{ borderRadius: "12px", background: "#ffffff", boxShadow: "0 2px 10px rgba(0, 0, 0, 0.03)" }}>
+        <div className="d-flex align-items-center gap-4 flex-wrap">
+          {/* Left Side: Compact File Upload Component (~200px wide) */}
+          <div
+            className="d-flex flex-column align-items-center justify-content-center px-3 py-2 rounded-3 border bg-white text-center"
+            style={{
+              width: "200px",
+              minWidth: "200px",
+              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
+              borderColor: "#E5E7EB",
+            }}
           >
-            <i className="bi bi-file-earmark-excel-fill" />
-            <span>Excel Upload</span>
-          </button>
-          <input
-            type="file"
-            accept=".xlsx, .xls, .csv"
-            ref={fileInputRef}
-            style={{ display: "none" }}
-            onChange={handleExcelUpload}
-          />
+            <button
+              type="button"
+              className="btn btn-primary d-flex align-items-center justify-content-center gap-2 w-100 rounded-3 py-1.5"
+              style={{
+                fontSize: "0.85rem",
+                fontWeight: "600",
+                backgroundColor: "#2563EB",
+                borderColor: "#2563EB",
+              }}
+              onClick={handleUploadClick}
+              disabled={isUploading}
+            >
+              <i className="bi bi-cloud-upload-fill" style={{ fontSize: "0.95rem" }} />
+              <span>{isUploading ? "Uploading..." : "Choose File"}</span>
+            </button>
+            <input
+              type="file"
+              accept=".xlsx, .xls, .csv"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              onChange={handleExcelUpload}
+            />
+            <span
+              className="text-muted mt-1"
+              style={{ fontSize: "0.72rem", fontWeight: "400" }}
+            >
+              Supports: .xlsx, .xls
+            </span>
+          </div>
+
+          {/* Right Side: Already Uploaded Files Section */}
+          <div className="d-flex flex-column" style={{ width: "320px", maxWidth: "100%" }}>
+            <label
+              className="form-label text-dark mb-1"
+              style={{ fontSize: "0.85rem", fontWeight: "600" }}
+            >
+              Already Uploaded Files
+            </label>
+            <div style={{ width: "100%" }}>
+              <SelectDropdown
+                icon="bi-folder-fill"
+                value={selectedSessionId}
+                onChange={setSelectedSessionId}
+                options={dropdownOptions}
+              />
+            </div>
+          </div>
         </div>
       </div>
+
 
       {/* Capability strip */}
       <div className="capability-grid">

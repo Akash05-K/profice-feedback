@@ -1,131 +1,184 @@
 import prisma from "../config/db.js";
 
-export const getTrainersList = async (collegeName) => {
-  const where = {};
+export const getTrainerFilterOptions = async (queryParams = {}) => {
+  const { college, course } = queryParams;
+
+  const records = await prisma.feedbackRecord.findMany({
+    where: { status: "active" },
+    select: {
+      college: { select: { name: true } },
+      course: { select: { title: true } },
+      trainer: { select: { id: true, name: true } },
+    },
+  });
+
+  const collegesSet = new Set();
+  const coursesSet = new Set();
+  const trainersMap = new Map();
+
+  records.forEach((r) => {
+    if (r.college?.name) collegesSet.add(r.college.name);
+
+    const matchCollege = !college || college === "All Colleges" || r.college?.name === college;
+    if (r.course?.title && matchCollege) {
+      coursesSet.add(r.course.title);
+    }
+
+    const matchCourse = !course || course === "All Courses" || r.course?.title === course;
+    if (r.trainer?.id && r.trainer?.name && matchCollege && matchCourse) {
+      trainersMap.set(String(r.trainer.id), r.trainer.name);
+    }
+  });
+
+  const trainersList = Array.from(trainersMap.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    colleges: ["All Colleges", ...Array.from(collegesSet).sort()],
+    courses: ["All Courses", ...Array.from(coursesSet).sort()],
+    trainers: [
+      { id: "overall", name: "Overall Classification" },
+      ...trainersList,
+    ],
+  };
+};
+
+export const getTrainersList = async (collegeName, courseTitle) => {
+  const where = { status: "active" };
+
   if (collegeName && collegeName !== "All Colleges") {
     where.college = { name: collegeName };
   }
+  if (courseTitle && courseTitle !== "All Courses") {
+    where.course = { title: courseTitle };
+  }
 
-  const trainers = await prisma.trainer.findMany({
+  const records = await prisma.feedbackRecord.findMany({
     where,
-    include: { college: true },
-    orderBy: { name: "asc" },
+    select: {
+      trainer: { select: { id: true, name: true, subjectSpecialties: true, college: { select: { name: true } } } },
+    },
   });
 
-  const list = trainers.map((t) => ({
-    id: String(t.id),
-    name: t.name,
-    subject: Array.isArray(t.subjectSpecialties) ? t.subjectSpecialties.join(" & ") : "All Subjects",
-    college: t.college.name,
-  }));
+  const trainersMap = new Map();
+  records.forEach((r) => {
+    if (r.trainer?.id) {
+      const t = r.trainer;
+      trainersMap.set(String(t.id), {
+        id: String(t.id),
+        name: t.name,
+        subject: Array.isArray(t.subjectSpecialties) ? t.subjectSpecialties.join(" & ") : "All Subjects",
+        college: t.college ? t.college.name : "All Colleges",
+      });
+    }
+  });
+
+  const list = Array.from(trainersMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
   return [{ id: "overall", name: "Overall Classification", subject: "All Trainers & Subjects", college: "All Colleges" }, ...list];
 };
 
-export const getTrainerMetrics = async (trainerId) => {
-  if (!trainerId || trainerId === "overall") {
-    const totalReviews = await prisma.feedbackRecord.count({ where: { status: "active" } });
-    const avgResult = await prisma.feedbackRecord.aggregate({
-      where: { status: "active" },
-      _avg: { rating: true },
+export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
+  const { college, course } = queryParams;
+  const where = { status: "active" };
+
+  if (college && college !== "All Colleges") {
+    where.college = { name: college };
+  }
+  if (course && course !== "All Courses") {
+    where.course = { title: course };
+  }
+
+  if (trainerId && trainerId !== "overall") {
+    const idNum = parseInt(trainerId, 10);
+    const trainer = await prisma.trainer.findFirst({
+      where: {
+        OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }],
+      },
     });
 
-    const satisfiedCount = await prisma.feedbackRecord.count({
-      where: { status: "active", rating: { gte: 3 } },
-    });
-    const satisfaction = Math.round((satisfiedCount / Math.max(1, totalReviews)) * 100);
-    const totalBatches = await prisma.batch.count();
+    if (trainer) {
+      where.trainerId = trainer.id;
+    }
+  }
 
+  const records = await prisma.feedbackRecord.findMany({
+    where,
+    select: { sentiment: true, aiKeywords: true, feedbackText: true, batchId: true, rating: true },
+  });
+
+  const totalReviews = records.length;
+
+  if (totalReviews === 0) {
     return {
-      overallRating: Number((avgResult._avg.rating || 4.4).toFixed(1)),
-      totalReviews: totalReviews || 837,
-      satisfaction: satisfaction || 86,
-      totalBatches: totalBatches || 12,
-      totalSessions: 255,
-      monthlyTrend: [
-        { month: "Jan", rating: 4.0 },
-        { month: "Feb", rating: 4.1 },
-        { month: "Mar", rating: 4.2 },
-        { month: "Apr", rating: 4.2 },
-        { month: "May", rating: 4.3 },
-        { month: "Jun", rating: 4.4 },
-        { month: "Jul", rating: 4.4 },
-      ],
-      strengths: [
-        "Strong subject knowledge and design expertise",
-        "Approachable, patient, and highly supportive",
-        "Effective hands-on lab and project mentoring",
-        "Clear, well-structured session explanations",
-      ],
-      weaknesses: [
-        "Slow response times to doubt support queries",
-        "Limited practical/studio time in some modules",
-        "Pacing can occasionally be too fast for beginners",
-      ],
-      recommendations: [
-        "Set up dedicated doubt-clearing time slots and channels",
-        "Publish session video recordings and refresh study content regularly",
-        "Pre-provision laboratory environments to save class time",
-      ],
+      overallRating: 0,
+      totalReviews: 0,
+      satisfaction: 0,
+      totalBatches: 0,
+      totalSessions: 0,
+      monthlyTrend: [],
+      strengths: [],
+      weaknesses: [],
+      recommendations: [],
     };
   }
 
-  const idNum = parseInt(trainerId, 10);
-  const trainer = await prisma.trainer.findFirst({
-    where: {
-      OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }],
-    },
+  const sumRating = records.reduce((acc, r) => acc + r.rating, 0);
+  const avgRating = sumRating / totalReviews;
+
+  const satisfiedCount = records.filter((r) => r.rating >= 3).length;
+  const satisfaction = Math.round((satisfiedCount / totalReviews) * 100);
+
+  // Count distinct batches matching these records
+  const batchIdsSet = new Set(records.map((r) => r.batchId).filter(Boolean));
+  const totalBatches = batchIdsSet.size;
+  const totalSessions = totalBatches * 20;
+
+  // Extract strengths and weaknesses from keywords in positive & negative feedback
+  const posKeywords = {};
+  const negKeywords = {};
+
+  records.forEach((r) => {
+    const kws = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
+    kws.forEach((kw) => {
+      const clean = String(kw).toLowerCase().trim();
+      if (!clean) return;
+      if (r.sentiment === "positive") {
+        posKeywords[clean] = (posKeywords[clean] || 0) + 1;
+      } else if (r.sentiment === "negative") {
+        negKeywords[clean] = (negKeywords[clean] || 0) + 1;
+      }
+    });
   });
 
-  if (!trainer) {
-    return getTrainerMetrics("overall");
-  }
+  const topPos = Object.entries(posKeywords)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([kw]) => `Strong student feedback on ${kw}`);
 
-  const reviewsCount = await prisma.feedbackRecord.count({
-    where: { trainerId: trainer.id, status: "active" },
-  });
-
-  const avgResult = await prisma.feedbackRecord.aggregate({
-    where: { trainerId: trainer.id, status: "active" },
-    _avg: { rating: true },
-  });
-
-  const satisfiedCount = await prisma.feedbackRecord.count({
-    where: { trainerId: trainer.id, status: "active", rating: { gte: 3 } },
-  });
-
-  const satisfaction = Math.round((satisfiedCount / Math.max(1, reviewsCount)) * 100);
-  const batchCount = await prisma.batch.count({ where: { trainerId: trainer.id } });
+  const topNeg = Object.entries(negKeywords)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([kw]) => `Improvement needed regarding ${kw}`);
 
   return {
-    overallRating: Number((avgResult._avg.rating || 4.5).toFixed(1)),
-    totalReviews: reviewsCount || 312,
-    satisfaction: satisfaction || 90,
-    totalBatches: batchCount || 4,
-    totalSessions: (batchCount || 4) * 20,
+    overallRating: Number(avgRating.toFixed(1)),
+    totalReviews,
+    satisfaction,
+    totalBatches,
+    totalSessions,
     monthlyTrend: [
-      { month: "Jan", rating: 4.1 },
-      { month: "Feb", rating: 4.2 },
-      { month: "Mar", rating: 4.3 },
-      { month: "Apr", rating: 4.4 },
-      { month: "May", rating: 4.5 },
-      { month: "Jun", rating: 4.6 },
-      { month: "Jul", rating: Number((avgResult._avg.rating || 4.5).toFixed(1)) },
+      { month: "Jan", rating: Number(avgRating.toFixed(1)) },
+      { month: "Feb", rating: Number(avgRating.toFixed(1)) },
+      { month: "Mar", rating: Number(avgRating.toFixed(1)) },
+      { month: "Apr", rating: Number(avgRating.toFixed(1)) },
+      { month: "May", rating: Number(avgRating.toFixed(1)) },
+      { month: "Jun", rating: Number(avgRating.toFixed(1)) },
+      { month: "Jul", rating: Number(avgRating.toFixed(1)) },
     ],
-    strengths: [
-      "Clear, well-structured explanations",
-      "Strong subject knowledge",
-      "Punctual and well organized",
-      "Encourages student questions",
-    ],
-    weaknesses: [
-      "Pace can be fast for beginners",
-      "Limited real-world case studies",
-    ],
-    recommendations: [
-      "Slow down pace during advanced topics",
-      "Add more real-world case studies to sessions",
-      "Continue the interactive Q&A format",
-    ],
+    strengths: topPos.length > 0 ? topPos : ["Strong overall student feedback"],
+    weaknesses: topNeg.length > 0 ? topNeg : ["No major negative feedback reported"],
+    recommendations: ["Continue tracking student responses for upcoming batches"],
   };
 };

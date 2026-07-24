@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AppLayout from "../../components/layout/AppLayout";
 import StatCard from "../../components/cards/StatCard";
 import SelectDropdown from "../../components/common/SelectDropdown";
@@ -6,7 +6,6 @@ import ProfileBanner from "../../components/widgets/ProfileBanner";
 import StrengthsWeaknesses from "../../components/widgets/StrengthsWeaknesses";
 import RecommendedActions from "../../components/widgets/RecommendedActions";
 import api from "../../services/api";
-import { trainers as fallbackTrainers, trainerMetrics as fallbackMetrics } from "../../data/trainerInsightsData";
 
 const statCardsConfig = [
   { key: "overallRating", label: "Overall Rating", icon: "bi-star-fill", tone: "amber", suffix: "/ 5" },
@@ -15,56 +14,84 @@ const statCardsConfig = [
   { key: "totalSessions", label: "Sessions Conducted", icon: "bi-calendar2-check-fill", tone: "blue", suffix: "" },
 ];
 
-const collegeOptions = [
-  { value: "All Colleges", label: "All Colleges" },
-  { value: "PSG College of Technology", label: "PSG College of Technology" },
-  { value: "Coimbatore Institute of Technology", label: "Coimbatore Institute of Technology" },
-  { value: "Government College of Technology", label: "Government College of Technology" },
-];
-
 function TrainerInsights() {
   const [selectedCollege, setSelectedCollege] = useState("All Colleges");
+  const [selectedCourse, setSelectedCourse] = useState("All Courses");
   const [trainerId, setTrainerId] = useState("overall");
 
-  const [trainersList, setTrainersList] = useState(fallbackTrainers);
-  const [metrics, setMetrics] = useState(fallbackMetrics["overall"]);
+  const [availableColleges, setAvailableColleges] = useState(["All Colleges"]);
+  const [availableCourses, setAvailableCourses] = useState(["All Courses"]);
+  const [trainersList, setTrainersList] = useState([{ id: "overall", name: "Overall Classification" }]);
 
-  // Fetch trainers list
-  useEffect(() => {
-    async function loadTrainers() {
-      try {
-        const res = await api.getTrainers(selectedCollege);
-        if (res.data && res.data.length > 0) {
-          setTrainersList(res.data);
-        }
-      } catch (e) {
-        console.error("Fetch trainers error:", e);
-      }
-    }
-    loadTrainers();
-  }, [selectedCollege]);
+  const [metrics, setMetrics] = useState({
+    overallRating: 0,
+    totalReviews: 0,
+    satisfaction: 0,
+    totalBatches: 0,
+    totalSessions: 0,
+    strengths: [],
+    weaknesses: [],
+    recommendations: [],
+  });
 
-  // Fetch trainer metrics
-  useEffect(() => {
-    async function loadMetrics() {
-      try {
-        const res = await api.getTrainerMetrics(trainerId);
-        if (res.data) {
-          setMetrics(res.data);
-        }
-      } catch (e) {
-        console.error("Fetch metrics error:", e);
+  // Load cascading filter options
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const res = await api.getTrainerFilterOptions({
+        college: selectedCollege,
+        course: selectedCourse,
+      });
+      if (res.data) {
+        setAvailableColleges(res.data.colleges || ["All Colleges"]);
+        setAvailableCourses(res.data.courses || ["All Courses"]);
+        setTrainersList(res.data.trainers || [{ id: "overall", name: "Overall Classification" }]);
       }
+    } catch (e) {
+      console.error("Filter options fetch error:", e);
     }
+  }, [selectedCollege, selectedCourse]);
+
+  useEffect(() => {
+    loadFilterOptions();
+  }, [loadFilterOptions]);
+
+  // Load trainer metrics with all 3 filters
+  const loadMetrics = useCallback(async () => {
+    try {
+      const res = await api.getTrainerMetrics(trainerId, {
+        college: selectedCollege,
+        course: selectedCourse,
+      });
+      if (res.data) {
+        setMetrics(res.data);
+      }
+    } catch (e) {
+      console.error("Fetch metrics error:", e);
+    }
+  }, [trainerId, selectedCollege, selectedCourse]);
+
+  useEffect(() => {
     loadMetrics();
-  }, [trainerId]);
+  }, [loadMetrics]);
 
-  const currentTrainer = trainersList.find((t) => t.id === trainerId) || trainersList[0];
-
-  const handleCollegeChange = (collegeName) => {
-    setSelectedCollege(collegeName);
+  const handleCollegeChange = (val) => {
+    setSelectedCollege(val);
+    setSelectedCourse("All Courses");
     setTrainerId("overall");
   };
+
+  const handleCourseChange = (val) => {
+    setSelectedCourse(val);
+    setTrainerId("overall");
+  };
+
+  const handleTrainerChange = (val) => {
+    setTrainerId(val);
+  };
+
+  const currentTrainerObj = trainersList.find((t) => String(t.id) === String(trainerId)) || trainersList[0];
+  const trainerName = currentTrainerObj ? currentTrainerObj.name : "Overall Classification";
+  const avatarInitials = trainerName ? trainerName.split(" ").map((p) => p[0]).join("").slice(0, 2) : "TR";
 
   const statCards = statCardsConfig.map((config) => ({
     id: config.key,
@@ -77,26 +104,38 @@ function TrainerInsights() {
 
   return (
     <AppLayout title="Trainer Insights">
-      {/* Trainer profile + selector */}
+      {/* Trainer profile + 3 cascading dropdown filters */}
       <div className="dashboard-row">
         <ProfileBanner
-          avatarLabel={currentTrainer.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
-          name={currentTrainer.name}
-          subtitle={currentTrainer.subject}
+          avatarLabel={avatarInitials}
+          name={trainerName}
+          subtitle={`College: ${selectedCollege} · Course: ${selectedCourse}`}
           rating={metrics.overallRating}
           ratingLabel={`(${metrics.totalReviews} reviews)`}
         >
-          <div className="d-flex gap-3 align-items-center flex-wrap">
+          <div className="d-flex gap-2 align-items-center flex-wrap">
             <SelectDropdown
               icon="bi-building"
               value={selectedCollege}
               onChange={handleCollegeChange}
-              options={collegeOptions}
+              options={availableColleges.map((col) => ({ value: col, label: col }))}
             />
+
             <SelectDropdown
+              icon="bi-mortarboard-fill"
+              value={selectedCourse}
+              onChange={handleCourseChange}
+              options={availableCourses.map((c) => ({
+                value: c,
+                label: c === "All Courses" ? "All Courses" : c,
+              }))}
+            />
+
+            <SelectDropdown
+              icon="bi-person"
               value={trainerId}
-              onChange={setTrainerId}
-              options={trainersList.map((t) => ({ value: t.id, label: t.name }))}
+              onChange={handleTrainerChange}
+              options={trainersList.map((t) => ({ value: String(t.id), label: t.name }))}
             />
           </div>
         </ProfileBanner>

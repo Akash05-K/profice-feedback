@@ -1,7 +1,19 @@
 import prisma from "../config/db.js";
 
 export const getBatchesList = async () => {
+  const activeRecords = await prisma.feedbackRecord.findMany({
+    where: { status: "active" },
+    select: { batchId: true },
+  });
+
+  const activeBatchIds = Array.from(new Set(activeRecords.map((r) => r.batchId).filter(Boolean)));
+
+  if (activeBatchIds.length === 0) {
+    return [];
+  }
+
   const batches = await prisma.batch.findMany({
+    where: { id: { in: activeBatchIds } },
     include: {
       course: true,
       trainer: true,
@@ -9,27 +21,32 @@ export const getBatchesList = async () => {
     orderBy: { batchCode: "asc" },
   });
 
-  const completionMap = { "MERN-B12": 91, "DS-B07": 84, "UIUX-B05": 76, "CLOUD-B09": 89, "PY-B14": 94, "MERN-B13": 68 };
-  const participationMap = { "MERN-B12": 88, "DS-B07": 79, "UIUX-B05": 71, "CLOUD-B09": 85, "PY-B14": 90, "MERN-B13": 64 };
-  const scoreMap = { "MERN-B12": 92, "DS-B07": 83, "UIUX-B05": 74, "CLOUD-B09": 88, "PY-B14": 93, "MERN-B13": 66 };
-
   return batches.map((b) => ({
     id: String(b.id),
     name: b.batchCode,
-    course: b.course.title,
-    trainer: b.trainer.name,
+    course: b.course ? b.course.title : "N/A",
+    trainer: b.trainer ? b.trainer.name : "N/A",
     totalStudents: b.totalStudents,
-    completionRate: completionMap[b.batchCode] || 85,
-    participationRate: participationMap[b.batchCode] || 80,
-    overallScore: scoreMap[b.batchCode] || 85,
+    completionRate: 85,
+    participationRate: 80,
+    overallScore: 85,
   }));
 };
 
 export const getBatchStats = async () => {
   const batches = await getBatchesList();
+  if (batches.length === 0) {
+    return {
+      totalBatches: 0,
+      totalStudents: 0,
+      avgCompletion: 0,
+      avgParticipation: 0,
+    };
+  }
+
   const totalStudents = batches.reduce((sum, b) => sum + b.totalStudents, 0);
-  const avgCompletion = Math.round(batches.reduce((sum, b) => sum + b.completionRate, 0) / Math.max(1, batches.length));
-  const avgParticipation = Math.round(batches.reduce((sum, b) => sum + b.participationRate, 0) / Math.max(1, batches.length));
+  const avgCompletion = Math.round(batches.reduce((sum, b) => sum + b.completionRate, 0) / batches.length);
+  const avgParticipation = Math.round(batches.reduce((sum, b) => sum + b.participationRate, 0) / batches.length);
 
   return {
     totalBatches: batches.length,

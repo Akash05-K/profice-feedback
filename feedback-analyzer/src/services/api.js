@@ -28,6 +28,10 @@ export const api = {
     });
   },
   getUploadSessions: () => API.get("/upload/sessions"),
+  getUploadSessionAnalysis: (id) => API.get(`/upload/sessions/${id}/analysis`),
+  deleteUploadSession: (id) => API.delete(`/upload/sessions/${id}`),
+
+
 
   // Dashboard
   getDashboardStats: () => API.get("/dashboard/stats"),
@@ -51,12 +55,16 @@ export const api = {
     }),
 
   // Trainers
-  getTrainers: (college) => API.get("/trainers", { params: { college } }),
-  getTrainerMetrics: (id) => API.get(`/trainers/${id}/metrics`),
+  getTrainerFilterOptions: (params) => API.get("/trainers/filter-options", { params }),
+  getTrainers: (params) => API.get("/trainers", { params: typeof params === "string" ? { college: params } : params }),
+  getTrainerMetrics: (id, params) => API.get(`/trainers/${id}/metrics`, { params }),
+
 
   // Courses
+  getCourseFilterOptions: (params) => API.get("/courses/filter-options", { params }),
   getCourses: (college) => API.get("/courses", { params: { college } }),
-  getCourseMetrics: (id) => API.get(`/courses/${id}/metrics`),
+  getCourseMetrics: (id, params) => API.get(`/courses/${id}/metrics`, { params }),
+
 
   // Batches
   getBatches: () => API.get("/batches"),

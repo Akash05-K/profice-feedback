@@ -1,111 +1,14 @@
-
 export const courses = [
   { id: "overall", name: "Overall Classification", category: "All Categories", duration: "All Courses", college: "All Colleges" },
-  { id: "mern-stack", name: "MERN Stack Development", category: "Web Development", duration: "12 weeks", college: "PSG College of Technology" },
-  { id: "data-science", name: "Data Science", category: "Data & Analytics", duration: "16 weeks", college: "PSG College of Technology" },
-  { id: "ui-ux-design", name: "UI/UX Design", category: "Design", duration: "10 weeks", college: "Coimbatore Institute of Technology" },
-  { id: "cloud-computing", name: "Cloud Computing", category: "Cloud & DevOps", duration: "14 weeks", college: "Government College of Technology" },
 ];
 
 export const courseMetrics = {
-  "overall": {
-    courseRating: 4.3,
-    contentRating: 4.2,
-    practicalRating: 4.3,
-    enrolledStudents: 937,
-    monthlyTrend: [
-      { month: "Jan", course: 3.9, content: 3.9, practical: 3.9 },
-      { month: "Feb", course: 4.0, content: 4.0, practical: 4.0 },
-      { month: "Mar", course: 4.1, content: 4.0, practical: 4.1 },
-      { month: "Apr", course: 4.2, content: 4.1, practical: 4.2 },
-      { month: "May", course: 4.2, content: 4.1, practical: 4.2 },
-      { month: "Jun", course: 4.3, content: 4.2, practical: 4.3 },
-      { month: "Jul", course: 4.3, content: 4.2, practical: 4.3 },
-    ],
-    improvementSuggestions: [
-      "Provide more real-world datasets and portfolio brief templates across all tracks",
-      "Increase hands-on session hours and ensure lab environments are pre-provisioned",
-      "Publish session video recordings and review course modules consistently",
-    ],
-  },
-  "mern-stack": {
-    courseRating: 4.6,
-    contentRating: 4.4,
-    practicalRating: 4.8,
-    enrolledStudents: 312,
-    monthlyTrend: [
-      { month: "Jan", course: 4.1, content: 4.0, practical: 4.3 },
-      { month: "Feb", course: 4.2, content: 4.1, practical: 4.4 },
-      { month: "Mar", course: 4.3, content: 4.2, practical: 4.5 },
-      { month: "Apr", course: 4.4, content: 4.3, practical: 4.6 },
-      { month: "May", course: 4.5, content: 4.3, practical: 4.7 },
-      { month: "Jun", course: 4.5, content: 4.4, practical: 4.8 },
-      { month: "Jul", course: 4.6, content: 4.4, practical: 4.8 },
-    ],
-    improvementSuggestions: [
-      "Add more advanced deployment and DevOps modules",
-      "Update React examples to the latest version",
-      "Include more group project work",
-    ],
-  },
-  "data-science": {
-    courseRating: 4.2,
-    contentRating: 4.0,
-    practicalRating: 4.1,
-    enrolledStudents: 248,
-    monthlyTrend: [
-      { month: "Jan", course: 3.8, content: 3.7, practical: 3.9 },
-      { month: "Feb", course: 3.9, content: 3.8, practical: 3.9 },
-      { month: "Mar", course: 4.0, content: 3.8, practical: 4.0 },
-      { month: "Apr", course: 4.0, content: 3.9, practical: 4.0 },
-      { month: "May", course: 4.1, content: 3.9, practical: 4.1 },
-      { month: "Jun", course: 4.1, content: 4.0, practical: 4.1 },
-      { month: "Jul", course: 4.2, content: 4.0, practical: 4.1 },
-    ],
-    improvementSuggestions: [
-      "Add more real-world datasets to practice with",
-      "Refresh statistics module with updated examples",
-      "Provide more one-on-one project mentoring",
-    ],
-  },
-  "ui-ux-design": {
-    courseRating: 4.0,
-    contentRating: 4.2,
-    practicalRating: 3.6,
-    enrolledStudents: 176,
-    monthlyTrend: [
-      { month: "Jan", course: 3.7, content: 3.9, practical: 3.3 },
-      { month: "Feb", course: 3.8, content: 4.0, practical: 3.4 },
-      { month: "Mar", course: 3.8, content: 4.0, practical: 3.4 },
-      { month: "Apr", course: 3.9, content: 4.1, practical: 3.5 },
-      { month: "May", course: 3.9, content: 4.1, practical: 3.5 },
-      { month: "Jun", course: 4.0, content: 4.2, practical: 3.6 },
-      { month: "Jul", course: 4.0, content: 4.2, practical: 3.6 },
-    ],
-    improvementSuggestions: [
-      "Increase hands-on studio/practice time significantly",
-      "Add more real client-brief style projects",
-      "Publish session recordings consistently for revision",
-    ],
-  },
-  "cloud-computing": {
-    courseRating: 4.5,
-    contentRating: 4.3,
-    practicalRating: 4.7,
-    enrolledStudents: 201,
-    monthlyTrend: [
-      { month: "Jan", course: 4.0, content: 3.9, practical: 4.2 },
-      { month: "Feb", course: 4.1, content: 4.0, practical: 4.3 },
-      { month: "Mar", course: 4.2, content: 4.1, practical: 4.4 },
-      { month: "Apr", course: 4.3, content: 4.1, practical: 4.5 },
-      { month: "May", course: 4.4, content: 4.2, practical: 4.6 },
-      { month: "Jun", course: 4.4, content: 4.2, practical: 4.6 },
-      { month: "Jul", course: 4.5, content: 4.3, practical: 4.7 },
-    ],
-    improvementSuggestions: [
-      "Pre-provision lab environments before each session",
-      "Add an advanced track for experienced learners",
-      "Cover more multi-cloud deployment scenarios",
-    ],
+  overall: {
+    courseRating: 0.0,
+    contentRating: 0.0,
+    practicalRating: 0.0,
+    enrolledStudents: 0,
+    monthlyTrend: [],
+    improvementSuggestions: [],
   },
 };

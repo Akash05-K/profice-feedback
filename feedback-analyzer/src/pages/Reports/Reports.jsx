@@ -6,7 +6,6 @@ import SentimentDonutChart from "../../components/charts/SentimentDonutChart";
 import SentimentLegend from "../../components/widgets/SentimentLegend";
 import Pagination from "../../components/widgets/Pagination";
 import api from "../../services/api";
-import { feedbackRecords as fallbackRecords } from "../../data/feedbackRepositoryData";
 
 function StarRating({ rating }) {
   return (
@@ -24,69 +23,80 @@ function StarRating({ rating }) {
 const PAGE_SIZE = 5;
 
 function Reports() {
-  const [selectedTrainer, setSelectedTrainer] = useState("all");
+  const [selectedCollege, setSelectedCollege] = useState("all");
   const [selectedCourse, setSelectedCourse] = useState("all");
-  const [selectedBatch, setSelectedBatch] = useState("all");
+  const [selectedTrainer, setSelectedTrainer] = useState("all");
+
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState("date");
-  const [sortOrder, setSortOrder] = useState("desc");
 
-  const [trainersList, setTrainersList] = useState([{ value: "all", label: "All Trainers" }]);
+  const [collegesList, setCollegesList] = useState([{ value: "all", label: "All Colleges" }]);
   const [coursesList, setCoursesList] = useState([{ value: "all", label: "All Courses" }]);
-  const [batchesList, setBatchesList] = useState([{ value: "all", label: "All Batches" }]);
+  const [trainersList, setTrainersList] = useState([{ value: "all", label: "All Trainers" }]);
 
-  const [records, setRecords] = useState(fallbackRecords.slice(0, 5));
-  const [totalItems, setTotalItems] = useState(fallbackRecords.length);
+  const [records, setRecords] = useState([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
   const [kpis, setKpis] = useState({
-    total: fallbackRecords.length,
-    avgRating: "4.4",
-    satisfaction: 88,
-    positivePercent: 78,
+    total: 0,
+    avgRating: "0.0",
+    satisfaction: 0,
+    positivePercent: 0,
   });
 
   const [sentimentDistribution, setSentimentDistribution] = useState([
-    { name: "Positive", value: 78, count: "12", color: "#16A34A" },
-    { name: "Neutral", value: 15, count: "2", color: "#F59E0B" },
-    { name: "Negative", value: 7, count: "1", color: "#EF4444" },
+    { name: "Positive", value: 0, count: "0", color: "#16A34A" },
+    { name: "Neutral", value: 0, count: "0", color: "#F59E0B" },
+    { name: "Negative", value: 0, count: "0", color: "#EF4444" },
   ]);
 
-  // Load dropdown options
-  useEffect(() => {
-    async function loadFilterOptions() {
-      try {
-        const res = await api.getFeedbackFilterOptions();
-        if (res.data) {
-          setTrainersList([
-            { value: "all", label: "All Trainers" },
-            ...res.data.trainers.filter((t) => t !== "All Trainers").map((t) => ({ value: t, label: t })),
-          ]);
-          setCoursesList([
-            { value: "all", label: "All Courses" },
-            ...res.data.courses.filter((c) => c !== "All Courses").map((c) => ({ value: c, label: c })),
-          ]);
-        }
-      } catch (e) {
-        console.error("Filter options fetch error:", e);
+  // Load cascading filter options
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const res = await api.getFeedbackFilterOptions({
+        college: selectedCollege !== "all" ? selectedCollege : undefined,
+        course: selectedCourse !== "all" ? selectedCourse : undefined,
+      });
+      if (res.data) {
+        const validColleges = res.data.colleges || ["All Colleges"];
+        const validCourses = res.data.courses || ["All Courses"];
+        const validTrainers = res.data.trainers || ["All Trainers"];
+
+        setCollegesList([
+          { value: "all", label: "All Colleges" },
+          ...validColleges.filter((c) => c !== "All Colleges").map((c) => ({ value: c, label: c })),
+        ]);
+        setCoursesList([
+          { value: "all", label: "All Courses" },
+          ...validCourses.filter((c) => c !== "All Courses").map((c) => ({ value: c, label: c })),
+        ]);
+        setTrainersList([
+          { value: "all", label: "All Trainers" },
+          ...validTrainers.filter((t) => t !== "All Trainers").map((t) => ({ value: t, label: t })),
+        ]);
       }
+    } catch (e) {
+      console.error("Filter options fetch error:", e);
     }
+  }, [selectedCollege, selectedCourse]);
+
+  useEffect(() => {
     loadFilterOptions();
-  }, []);
+  }, [loadFilterOptions]);
 
   // Fetch report data
   const fetchReportsData = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await api.getReportsData({
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
+        college: selectedCollege !== "all" ? selectedCollege : undefined,
         course: selectedCourse !== "all" ? selectedCourse : undefined,
-        batch: selectedBatch !== "all" ? selectedBatch : undefined,
+        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
         startDate,
         endDate,
         search: searchTerm,
@@ -108,11 +118,29 @@ function Reports() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedTrainer, selectedCourse, selectedBatch, startDate, endDate, searchTerm, currentPage]);
+  }, [selectedCollege, selectedCourse, selectedTrainer, startDate, endDate, searchTerm, currentPage]);
 
   useEffect(() => {
     fetchReportsData();
   }, [fetchReportsData]);
+
+  const handleCollegeChange = (val) => {
+    setSelectedCollege(val);
+    setSelectedCourse("all");
+    setSelectedTrainer("all");
+    setCurrentPage(1);
+  };
+
+  const handleCourseChange = (val) => {
+    setSelectedCourse(val);
+    setSelectedTrainer("all");
+    setCurrentPage(1);
+  };
+
+  const handleTrainerChange = (val) => {
+    setSelectedTrainer(val);
+    setCurrentPage(1);
+  };
 
   const statCards = [
     { id: "total-feedback", label: "Total Reviews", value: String(kpis.total), icon: "bi-chat-square-text-fill", tone: "violet" },
@@ -124,9 +152,9 @@ function Reports() {
   const handleExportPDF = async () => {
     try {
       const blob = await api.exportReportsPdf({
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
+        college: selectedCollege !== "all" ? selectedCollege : undefined,
         course: selectedCourse !== "all" ? selectedCourse : undefined,
-        batch: selectedBatch !== "all" ? selectedBatch : undefined,
+        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
       });
       const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
       const link = document.createElement("a");
@@ -143,9 +171,9 @@ function Reports() {
   const handleExportExcel = async () => {
     try {
       const blob = await api.exportReportsExcel({
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
+        college: selectedCollege !== "all" ? selectedCollege : undefined,
         course: selectedCourse !== "all" ? selectedCourse : undefined,
-        batch: selectedBatch !== "all" ? selectedBatch : undefined,
+        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
       });
       const url = window.URL.createObjectURL(new Blob([blob]));
       const link = document.createElement("a");
@@ -162,9 +190,9 @@ function Reports() {
   const handleExportCSV = async () => {
     try {
       const blob = await api.exportReportsCsv({
-        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
+        college: selectedCollege !== "all" ? selectedCollege : undefined,
         course: selectedCourse !== "all" ? selectedCourse : undefined,
-        batch: selectedBatch !== "all" ? selectedBatch : undefined,
+        trainer: selectedTrainer !== "all" ? selectedTrainer : undefined,
       });
       const url = window.URL.createObjectURL(new Blob([blob]));
       const link = document.createElement("a");
@@ -214,28 +242,28 @@ function Reports() {
           </div>
         </div>
 
-        {/* Filter Controls Row */}
+        {/* 3 Cascading Filter Controls: College, Course, Trainer */}
         <div className="reports-filter-grid">
           <SelectDropdown
-            label="Trainer"
-            icon="bi-person"
-            value={selectedTrainer}
-            onChange={(val) => { setSelectedTrainer(val); setCurrentPage(1); }}
-            options={trainersList}
+            label="College"
+            icon="bi-building"
+            value={selectedCollege}
+            onChange={handleCollegeChange}
+            options={collegesList}
           />
           <SelectDropdown
             label="Course"
             icon="bi-journal-bookmark"
             value={selectedCourse}
-            onChange={(val) => { setSelectedCourse(val); setCurrentPage(1); }}
+            onChange={handleCourseChange}
             options={coursesList}
           />
           <SelectDropdown
-            label="Batch"
-            icon="bi-people"
-            value={selectedBatch}
-            onChange={(val) => { setSelectedBatch(val); setCurrentPage(1); }}
-            options={batchesList}
+            label="Trainer"
+            icon="bi-person"
+            value={selectedTrainer}
+            onChange={handleTrainerChange}
+            options={trainersList}
           />
         </div>
       </div>
@@ -269,6 +297,7 @@ function Reports() {
                   <thead className="table-light">
                     <tr>
                       <th>Student</th>
+                      <th>College</th>
                       <th>Course</th>
                       <th>Trainer</th>
                       <th>Rating</th>
@@ -280,6 +309,7 @@ function Reports() {
                     {records.map((r, i) => (
                       <tr key={i}>
                         <td className="fw-semibold">{r.student}</td>
+                        <td>{r.college}</td>
                         <td>{r.course}</td>
                         <td>{r.trainer}</td>
                         <td><StarRating rating={r.rating} /></td>

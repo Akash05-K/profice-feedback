@@ -2,7 +2,7 @@ function QuickActions({ actions, onActionClick }) {
   return (
     <div className="panel quick-actions-card">
       <div className="panel-header">
-        <h2 className="panel-header__title">quickActions</h2>
+        <h2 className="panel-header__title">Quick Actions</h2>
       </div>
 
       <div className="quick-actions-grid">

@@ -6,26 +6,64 @@ export const getReportsData = async (queryParams) => {
   const result = await getFeedbackRecords(queryParams);
   const records = result.data;
 
-  const total = result.pagination.total;
+  // Build Prisma where clause for full unpaginated KPIs
+  const { college, course, trainer, startDate, endDate, search } = queryParams;
+  const where = { status: "active" };
+
+  if (college && college !== "all" && college !== "All Colleges") {
+    where.college = { name: college };
+  }
+  if (course && course !== "all" && course !== "All Courses") {
+    where.course = { title: course };
+  }
+  if (trainer && trainer !== "all" && trainer !== "All Trainers") {
+    where.trainer = { name: trainer };
+  }
+  if (startDate || endDate) {
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = new Date(startDate);
+    if (endDate) where.createdAt.lte = new Date(endDate);
+  }
+  if (search && search.trim()) {
+    const term = search.trim();
+    where.OR = [
+      { studentName: { contains: term } },
+      { feedbackText: { contains: term } },
+      { trainer: { name: { contains: term } } },
+      { course: { title: { contains: term } } },
+      { college: { name: { contains: term } } },
+    ];
+  }
+
+  const total = await prisma.feedbackRecord.count({ where });
+
   let avgRating = "0.0";
   let satisfaction = 0;
   let positivePercent = 0;
+  let posCount = 0;
+  let neuCount = 0;
+  let negCount = 0;
 
   if (total > 0) {
-    const sumRating = records.reduce((sum, r) => sum + r.rating, 0);
-    avgRating = (sumRating / records.length).toFixed(1);
+    const avgResult = await prisma.feedbackRecord.aggregate({
+      where,
+      _avg: { rating: true },
+    });
+    avgRating = (avgResult._avg.rating || 0).toFixed(1);
 
-    const satisfiedCount = records.filter((r) => r.rating >= 3).length;
-    satisfaction = Math.round((satisfiedCount / records.length) * 100);
+    const satisfiedCount = await prisma.feedbackRecord.count({
+      where: { ...where, rating: { gte: 3 } },
+    });
+    satisfaction = Math.round((satisfiedCount / total) * 100);
 
-    const positiveCount = records.filter((r) => r.sentiment === "positive").length;
-    positivePercent = Math.round((positiveCount / records.length) * 100);
+    posCount = await prisma.feedbackRecord.count({ where: { ...where, sentiment: "positive" } });
+    neuCount = await prisma.feedbackRecord.count({ where: { ...where, sentiment: "neutral" } });
+    negCount = await prisma.feedbackRecord.count({ where: { ...where, sentiment: "negative" } });
+
+    positivePercent = Math.round((posCount / total) * 100);
   }
 
-  const posCount = records.filter((r) => r.sentiment === "positive").length;
-  const neuCount = records.filter((r) => r.sentiment === "neutral").length;
-  const negCount = records.filter((r) => r.sentiment === "negative").length;
-  const denom = Math.max(1, records.length);
+  const denom = Math.max(1, total);
 
   const sentimentDistribution = [
     { name: "Positive", value: Math.round((posCount / denom) * 100), count: String(posCount), color: "#16A34A" },
@@ -48,7 +86,7 @@ export const getReportsData = async (queryParams) => {
 
 export const exportReportsPdf = async (queryParams) => {
   const { kpis, records } = await getReportsData({ ...queryParams, limit: 1000 });
-  const filterInfo = `Trainer: ${queryParams.trainer || "All"} | Course: ${queryParams.course || "All"} | Batch: ${queryParams.batch || "All"}`;
+  const filterInfo = `College: ${queryParams.college || "All"} | Course: ${queryParams.course || "All"} | Trainer: ${queryParams.trainer || "All"}`;
   const pdfBuffer = generateFeedbackPdf(records, kpis, filterInfo);
 
   return {

@@ -44,6 +44,7 @@ const sortOptions = [
 const statusTabs = [
   { value: "active", label: "Active" },
   { value: "archived", label: "Archived" },
+  { value: "uploads", label: "Upload History" },
 ];
 
 const PAGE_SIZE = 20;
@@ -97,6 +98,11 @@ function FeedbackRepository() {
   const [activeViewFeedback, setActiveViewFeedback] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Upload History state
+  const [uploadSessions, setUploadSessions] = useState([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState(null);
+
   // Load filter options dynamically
   const loadFilterOptions = useCallback(async () => {
     try {
@@ -120,6 +126,7 @@ function FeedbackRepository() {
 
   // Load repository records from API
   const fetchRecords = useCallback(async () => {
+    if (statusView === "uploads") return;
     setIsLoading(true);
     try {
       const [recordsRes, statsRes] = await Promise.all([
@@ -306,6 +313,46 @@ function FeedbackRepository() {
     setSelectedIds([]);
   }
 
+  // Upload History functions
+  const loadUploadSessions = useCallback(async () => {
+    setIsLoadingSessions(true);
+    try {
+      const res = await api.getUploadSessions();
+      if (res.data) {
+        setUploadSessions(res.data);
+      }
+    } catch (e) {
+      console.error("Failed to load upload sessions:", e);
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (statusView === "uploads") {
+      loadUploadSessions();
+    }
+  }, [statusView, loadUploadSessions]);
+
+  async function handleDeleteSession(sessionId, filename) {
+    if (!window.confirm(`Delete "${filename}" and all its ${uploadSessions.find(s => s.id === sessionId)?.totalRows || 0} feedback records? This cannot be undone.`)) {
+      return;
+    }
+    setDeletingSessionId(sessionId);
+    try {
+      const res = await api.deleteUploadSession(sessionId);
+      toast.success(`Deleted "${filename}" and ${res.data.deletedRecords} feedback records.`);
+      loadUploadSessions();
+      // Refresh stats since records were deleted
+      const statsRes = await api.getFeedbackStats();
+      if (statsRes.data) setStats(statsRes.data);
+    } catch (e) {
+      toast.error(e.message || "Failed to delete upload session.");
+    } finally {
+      setDeletingSessionId(null);
+    }
+  }
+
   return (
     <AppLayout title="Feedback Repository">
       <div className="stat-card-grid">
@@ -414,7 +461,7 @@ function FeedbackRepository() {
             >
               {tab.label}
               <span className="repository-tabs__count">
-                {tab.value === "active" ? stats.activeCount : stats.archivedCount}
+                {tab.value === "active" ? stats.activeCount : tab.value === "archived" ? stats.archivedCount : uploadSessions.length}
               </span>
             </button>
           ))}
@@ -465,36 +512,111 @@ function FeedbackRepository() {
         ) : null}
       </div>
 
-      <div className="panel repository-table-panel">
-        {isLoading ? (
-          <div className="p-5 text-center text-muted">
-            <div className="spinner-border text-primary me-2" role="status" />
-            <span>Loading records from MySQL database...</span>
-          </div>
-        ) : (
-          <>
-            <FeedbackTable
-              rows={pageRows}
-              selectedIds={selectedIds}
-              onToggleSelect={toggleSelect}
-              onToggleSelectAll={toggleSelectAll}
-              onToggleArchive={toggleArchive}
-              onDeleteRow={deleteRow}
-              onViewRow={(row) => setActiveViewFeedback(row)}
-              sortBy={sortBy}
-              onSort={handleSortChange}
-            />
+      {statusView === "uploads" ? (
+        /* ── Upload History Tab ── */
+        <div className="panel repository-table-panel">
+          {isLoadingSessions ? (
+            <div className="p-5 text-center text-muted">
+              <div className="spinner-border text-primary me-2" role="status" />
+              <span>Loading upload history...</span>
+            </div>
+          ) : uploadSessions.length === 0 ? (
+            <div className="p-5 text-center text-muted">
+              <i className="bi bi-cloud-upload" style={{ fontSize: "3rem", opacity: 0.3 }} />
+              <p className="mt-3" style={{ fontSize: "0.95rem" }}>No Excel files have been uploaded yet.</p>
+              <p style={{ fontSize: "0.85rem" }}>Upload a feedback Excel file from the <strong>AI Analysis</strong> page.</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover align-middle mb-0" style={{ fontSize: "0.85rem" }}>
+                <thead className="table-light">
+                  <tr>
+                    <th style={{ width: "40px" }}>#</th>
+                    <th><i className="bi bi-file-earmark-excel me-1" />Filename</th>
+                    <th><i className="bi bi-calendar3 me-1" />Upload Date</th>
+                    <th><i className="bi bi-clock me-1" />Upload Time</th>
+                    <th><i className="bi bi-list-ol me-1" />Total Rows</th>
+                    <th><i className="bi bi-check-circle me-1" />Status</th>
+                    <th style={{ width: "120px" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploadSessions.map((session, idx) => (
+                    <tr key={session.id}>
+                      <td className="text-muted">{idx + 1}</td>
+                      <td>
+                        <div className="d-flex align-items-center gap-2">
+                          <i className="bi bi-file-earmark-spreadsheet-fill" style={{ color: "#16A34A", fontSize: "1.1rem" }} />
+                          <span className="fw-semibold text-dark">{session.filename}</span>
+                        </div>
+                      </td>
+                      <td className="text-muted">{new Date(session.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                      <td className="text-muted">{new Date(session.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}</td>
+                      <td>
+                        <span className="badge bg-light text-dark border" style={{ fontSize: "0.8rem", fontWeight: 600 }}>
+                          {session.totalRows || 0} records
+                        </span>
+                      </td>
+                      <td>
+                        <span className="badge-pill badge-pill--green" style={{ fontSize: "0.75rem" }}>
+                          {session.status || "completed"}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 rounded-pill px-3"
+                          style={{ fontSize: "0.75rem", fontWeight: 600 }}
+                          onClick={() => handleDeleteSession(session.id, session.filename)}
+                          disabled={deletingSessionId === session.id}
+                        >
+                          {deletingSessionId === session.id ? (
+                            <><div className="spinner-border spinner-border-sm" role="status" /> Deleting...</>
+                          ) : (
+                            <><i className="bi bi-trash" /> Delete</>  
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ── Active / Archived Feedback Records Tab ── */
+        <div className="panel repository-table-panel">
+          {isLoading ? (
+            <div className="p-5 text-center text-muted">
+              <div className="spinner-border text-primary me-2" role="status" />
+              <span>Loading records from MySQL database...</span>
+            </div>
+          ) : (
+            <>
+              <FeedbackTable
+                rows={pageRows}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onToggleSelectAll={toggleSelectAll}
+                onToggleArchive={toggleArchive}
+                onDeleteRow={deleteRow}
+                onViewRow={(row) => setActiveViewFeedback(row)}
+                sortBy={sortBy}
+                onSort={handleSortChange}
+              />
 
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-              totalItems={totalItems}
-              pageSize={PAGE_SIZE}
-            />
-          </>
-        )}
-      </div>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                totalItems={totalItems}
+                pageSize={PAGE_SIZE}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       {activeViewFeedback && (
         <div className="modal fade show" style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1050 }} tabIndex="-1" role="dialog">

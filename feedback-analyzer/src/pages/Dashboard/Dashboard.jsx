@@ -147,7 +147,7 @@ function Dashboard() {
       </div>
 
       {/* Ranked lists and recent feedback */}
-      <div className="dashboard-row dashboard-row--three">
+      <div className="dashboard-row dashboard-row--three-equal">
         <RankedTopicList
           title="Top Appreciated Topics"
           icon="bi-trophy-fill"

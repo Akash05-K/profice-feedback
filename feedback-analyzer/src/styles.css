@@ -776,6 +776,13 @@ h6 {
   align-items: stretch;
 }
 
+.dashboard-row--three-equal {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  align-items: flex-start;
+}
+
 .trend-card,
 .sentiment-card {
   display: flex;
@@ -1403,10 +1410,11 @@ h6 {
 }
 .select-dropdown__icon {
   position: absolute;
-  left: 14px;
+  left: 12px;
   color: var(--color-text-secondary);
   font-size: 0.85rem;
   pointer-events: none;
+  z-index: 2;
 }
 .select-dropdown__caret {
   position: absolute;
@@ -1414,21 +1422,27 @@ h6 {
   color: var(--color-text-secondary);
   font-size: 0.7rem;
   pointer-events: none;
+  z-index: 2;
 }
 .select-dropdown__field {
   appearance: none;
   border: 1px solid var(--color-input-border);
   background: var(--color-bg-page);
   border-radius: var(--radius-pill);
-  padding: 10px 30px 10px 34px;
+  padding: 8px 28px 8px 32px;
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--color-text-primary);
-  min-width: 160px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .select-dropdown__field:focus {
   outline: none;
   border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .btn-outline-pill {

@@ -7,5 +7,9 @@ const router = Router();
 
 router.post("/analyze", upload.single("file"), uploadController.uploadFile);
 router.get("/sessions", uploadController.getSessions);
+router.get("/sessions/:id/analysis", uploadController.getSessionAnalysis);
+router.delete("/sessions/:id", uploadController.deleteSession);
 
 export default router;
+
+

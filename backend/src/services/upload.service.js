@@ -221,8 +221,135 @@ export const processUploadedFile = async (file, userId) => {
 };
 
 export const getUploadSessions = async () => {
+  // Auto-heal any stale processing sessions if nodemon/server restarted mid-upload
+  const processingSessions = await prisma.uploadSession.findMany({
+    where: { status: "processing" },
+  });
+
+  for (const s of processingSessions) {
+    const recordCount = await prisma.feedbackRecord.count({
+      where: { uploadSessionId: s.id },
+    });
+    await prisma.uploadSession.update({
+      where: { id: s.id },
+      data: {
+        processedRows: recordCount > 0 ? recordCount : s.totalRows,
+        status: "completed",
+      },
+    });
+  }
+
   return await prisma.uploadSession.findMany({
     orderBy: { createdAt: "desc" },
     take: 20,
   });
+};
+
+export const getUploadSessionAnalysis = async (sessionId) => {
+  const sessIdNum = parseInt(sessionId, 10);
+  if (isNaN(sessIdNum)) {
+    const error = new Error("Invalid session ID.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const session = await prisma.uploadSession.findUnique({
+    where: { id: sessIdNum },
+  });
+
+  if (!session) {
+    const error = new Error("Upload session not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const records = await prisma.feedbackRecord.findMany({
+    where: { uploadSessionId: sessIdNum },
+  });
+
+  const total = records.length;
+  let positive = 0;
+  let neutral = 0;
+  let negative = 0;
+  const keywordMap = {};
+
+  records.forEach((r) => {
+    if (r.sentiment === "positive") positive++;
+    else if (r.sentiment === "negative") negative++;
+    else neutral++;
+
+    const kws = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
+    kws.forEach((kw) => {
+      const clean = String(kw).toLowerCase().trim();
+      if (clean) {
+        keywordMap[clean] = (keywordMap[clean] || 0) + 1;
+      }
+    });
+  });
+
+  const denominator = Math.max(1, total);
+
+  const sentimentData = [
+    { name: "Positive", value: Math.round((positive / denominator) * 100), count: String(positive), color: "#16A34A" },
+    { name: "Neutral", value: Math.round((neutral / denominator) * 100), count: String(neutral), color: "#F59E0B" },
+    { name: "Negative", value: Math.round((negative / denominator) * 100), count: String(negative), color: "#EF4444" },
+  ];
+
+  const keywords = Object.entries(keywordMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([text, count]) => ({ text, count }));
+
+  const actions = negative > 0
+    ? [
+        "Address newly reported doubt clearing bottlenecks in this upload",
+        "Optimize lab timing schedule due to student comments",
+        "Review course speed pace for beginners",
+      ]
+    : ["Maintain current teaching methodology", "Share positive feedback with department head"];
+
+  return {
+    sessionId: session.id,
+    filename: session.filename,
+    createdAt: session.createdAt,
+    analyzedCount: total.toLocaleString(),
+    sentimentData,
+    keywords,
+    actions,
+  };
+};
+
+export const deleteUploadSession = async (sessionId) => {
+  const sessIdNum = parseInt(sessionId, 10);
+  if (isNaN(sessIdNum)) {
+    const error = new Error("Invalid session ID.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const session = await prisma.uploadSession.findUnique({
+    where: { id: sessIdNum },
+  });
+
+  if (!session) {
+    const error = new Error("Upload session not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Delete all feedback records belonging to this upload session
+  const deleted = await prisma.feedbackRecord.deleteMany({
+    where: { uploadSessionId: sessIdNum },
+  });
+
+  // Delete the upload session itself
+  await prisma.uploadSession.delete({
+    where: { id: sessIdNum },
+  });
+
+  return {
+    sessionId: sessIdNum,
+    filename: session.filename,
+    deletedRecords: deleted.count,
+  };
 };

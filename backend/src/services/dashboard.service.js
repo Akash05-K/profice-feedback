@@ -9,7 +9,7 @@ export const getDashboardStats = async () => {
       "average-rating": { value: "0.0", valueSuffix: "/ 5", change: "0%", changeLabel: "vs last month", trend: "up" },
       "satisfaction-score": { value: "0%", change: "0%", changeLabel: "vs last month", trend: "up" },
       "positive-feedback": { value: "0%", change: "0%", changeLabel: "vs last month", trend: "up" },
-      "response-rate": { value: "90%", change: "7.1%", changeLabel: "vs last month", trend: "down" },
+      "response-rate": { value: "0%", change: "0%", changeLabel: "vs last month", trend: "up" },
     };
   }
 
@@ -29,12 +29,19 @@ export const getDashboardStats = async () => {
   });
   const positivePercent = Math.round((positiveCount / total) * 100);
 
+  // Response rate based on total students in active batches
+  const studentCountAgg = await prisma.batch.aggregate({
+    _sum: { totalStudents: true },
+  });
+  const totalEnrolled = studentCountAgg._sum.totalStudents || 0;
+  const responseRateVal = totalEnrolled > 0 ? Math.min(100, Math.round((total / totalEnrolled) * 100)) : 100;
+
   return {
-    "total-feedback": { value: String(total), change: "9%", changeLabel: "vs last month", trend: "up" },
-    "average-rating": { value: String(avgRating), valueSuffix: "/ 5", change: "8.2%", changeLabel: "vs last month", trend: "up" },
-    "satisfaction-score": { value: `${satisfactionScore}%`, change: "10%", changeLabel: "vs last month", trend: "up" },
-    "positive-feedback": { value: `${positivePercent}%`, change: "5.6%", changeLabel: "vs last month", trend: "up" },
-    "response-rate": { value: "90%", change: "7.1%", changeLabel: "vs last month", trend: "down" },
+    "total-feedback": { value: String(total), change: "+100%", changeLabel: "total records", trend: "up" },
+    "average-rating": { value: String(avgRating), valueSuffix: "/ 5", change: "Overall", changeLabel: "avg score", trend: "up" },
+    "satisfaction-score": { value: `${satisfactionScore}%`, change: "Overall", changeLabel: "satisfied", trend: "up" },
+    "positive-feedback": { value: `${positivePercent}%`, change: "Overall", changeLabel: "positive sentiment", trend: "up" },
+    "response-rate": { value: `${responseRateVal}%`, change: "Overall", changeLabel: "response rate", trend: "up" },
   };
 };
 
@@ -100,38 +107,20 @@ export const getTopTopics = async () => {
     });
   });
 
-  const sortAndFormat = (map, defaultItems) => {
-    const sorted = Object.entries(map)
+  const sortAndFormat = (map) => {
+    return Object.entries(map)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([label, count], index) => ({
         rank: index + 1,
         label: label.charAt(0).toUpperCase() + label.slice(1),
-        value: Math.min(95, Math.max(20, count * 15)),
+        value: Math.min(100, count * 20),
       }));
-
-    return sorted.length > 0 ? sorted : defaultItems;
   };
 
-  const defaultAppreciated = [
-    { rank: 1, label: "Teaching", value: 80 },
-    { rank: 2, label: "Notes", value: 76 },
-    { rank: 3, label: "Labs", value: 72 },
-    { rank: 4, label: "Projects", value: 68 },
-    { rank: 5, label: "Support", value: 65 },
-  ];
-
-  const defaultImprovement = [
-    { rank: 1, label: "Labs", value: 62 },
-    { rank: 2, label: "Doubt Support", value: 48 },
-    { rank: 3, label: "Notes", value: 41 },
-    { rank: 4, label: "Classroom", value: 36 },
-    { rank: 5, label: "Timetable", value: 28 },
-  ];
-
   return {
-    appreciated: sortAndFormat(appreciatedMap, defaultAppreciated),
-    improvement: sortAndFormat(improvementMap, defaultImprovement),
+    appreciated: sortAndFormat(appreciatedMap),
+    improvement: sortAndFormat(improvementMap),
   };
 };
 
@@ -139,7 +128,7 @@ export const getRecentFeedback = async () => {
   const records = await prisma.feedbackRecord.findMany({
     where: { status: "active" },
     orderBy: { createdAt: "desc" },
-    take: 5,
+    take: 3,
     include: { course: true, college: true },
   });
 
@@ -147,6 +136,6 @@ export const getRecentFeedback = async () => {
     id: r.feedbackCode,
     sentiment: r.sentiment,
     text: r.feedbackText,
-    author: r.course ? r.course.title : r.college ? r.college.name : "Student",
+    author: `${r.studentName} (${r.course ? r.course.title : r.college ? r.college.name : "Student"})`,
   }));
 };

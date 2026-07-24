@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AppLayout from "../../components/layout/AppLayout";
 import StatCard from "../../components/cards/StatCard";
 import SelectDropdown from "../../components/common/SelectDropdown";
@@ -6,7 +6,6 @@ import ProfileBanner from "../../components/widgets/ProfileBanner";
 import MetricComparisonChart from "../../components/charts/MetricComparisonChart";
 import RecommendedActions from "../../components/widgets/RecommendedActions";
 import api from "../../services/api";
-import { courses as fallbackCourses, courseMetrics as fallbackMetrics } from "../../data/courseInsightsData";
 
 const statCardsConfig = [
   { key: "courseRating", label: "Course Rating", icon: "bi-award-fill", tone: "violet" },
@@ -20,51 +19,56 @@ const trendSeries = [
   { key: "practical", label: "Practical Rating", color: "#afd9bf" },
 ];
 
-const collegeOptions = [
-  { value: "All Colleges", label: "All Colleges" },
-  { value: "PSG College of Technology", label: "PSG College of Technology" },
-  { value: "Coimbatore Institute of Technology", label: "Coimbatore Institute of Technology" },
-  { value: "Government College of Technology", label: "Government College of Technology" },
-];
-
 function CourseInsights() {
   const [selectedCollege, setSelectedCollege] = useState("All Colleges");
   const [courseId, setCourseId] = useState("overall");
 
-  const [coursesList, setCoursesList] = useState(fallbackCourses);
-  const [metrics, setMetrics] = useState(fallbackMetrics["overall"]);
+  const [availableColleges, setAvailableColleges] = useState(["All Colleges"]);
+  const [coursesList, setCoursesList] = useState([{ id: "overall", name: "Overall Classification", category: "All Categories", duration: "All Courses", college: "All Colleges" }]);
+  
+  const [metrics, setMetrics] = useState({
+    courseRating: 0,
+    contentRating: 0,
+    practicalRating: 0,
+    enrolledStudents: 0,
+    monthlyTrend: [],
+    improvementSuggestions: [],
+  });
 
-  // Fetch courses list
-  useEffect(() => {
-    async function loadCourses() {
-      try {
-        const res = await api.getCourses(selectedCollege);
-        if (res.data && res.data.length > 0) {
-          setCoursesList(res.data);
-        }
-      } catch (e) {
-        console.error("Fetch courses error:", e);
+  // Fetch filter options (colleges and courses)
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const res = await api.getCourseFilterOptions({ college: selectedCollege });
+      if (res.data) {
+        setAvailableColleges(res.data.colleges || ["All Colleges"]);
+        setCoursesList(res.data.courses || []);
       }
+    } catch (e) {
+      console.error("Fetch filter options error:", e);
     }
-    loadCourses();
   }, [selectedCollege]);
 
-  // Fetch course metrics
   useEffect(() => {
-    async function loadMetrics() {
-      try {
-        const res = await api.getCourseMetrics(courseId);
-        if (res.data) {
-          setMetrics(res.data);
-        }
-      } catch (e) {
-        console.error("Fetch course metrics error:", e);
-      }
-    }
-    loadMetrics();
-  }, [courseId]);
+    loadFilterOptions();
+  }, [loadFilterOptions]);
 
-  const currentCourse = coursesList.find((c) => c.id === courseId) || coursesList[0];
+  // Fetch course metrics for selected course & college
+  const loadMetrics = useCallback(async () => {
+    try {
+      const res = await api.getCourseMetrics(courseId, { college: selectedCollege });
+      if (res.data) {
+        setMetrics(res.data);
+      }
+    } catch (e) {
+      console.error("Fetch course metrics error:", e);
+    }
+  }, [courseId, selectedCollege]);
+
+  useEffect(() => {
+    loadMetrics();
+  }, [loadMetrics]);
+
+  const currentCourse = coursesList.find((c) => String(c.id) === String(courseId)) || coursesList[0];
 
   const handleCollegeChange = (collegeName) => {
     setSelectedCollege(collegeName);
@@ -82,12 +86,12 @@ function CourseInsights() {
 
   return (
     <AppLayout title="Course Insights">
-      {/* Course profile + selector */}
+      {/* Course profile + 2 cascading dropdown selectors */}
       <div className="dashboard-row">
         <ProfileBanner
           avatarIcon="bi-mortarboard-fill"
-          name={currentCourse.name}
-          subtitle={`${currentCourse.category || "General"} · ${currentCourse.duration || "12 weeks"}`}
+          name={currentCourse ? currentCourse.name : "Overall Classification"}
+          subtitle={`${currentCourse ? currentCourse.category : "General"} · ${currentCourse ? currentCourse.duration : "All Courses"}`}
           rating={metrics.courseRating}
           ratingLabel={`(${metrics.enrolledStudents || 0} students enrolled)`}
         >
@@ -96,12 +100,13 @@ function CourseInsights() {
               icon="bi-building"
               value={selectedCollege}
               onChange={handleCollegeChange}
-              options={collegeOptions}
+              options={availableColleges.map((col) => ({ value: col, label: col }))}
             />
             <SelectDropdown
+              icon="bi-mortarboard-fill"
               value={courseId}
               onChange={setCourseId}
-              options={coursesList.map((c) => ({ value: c.id, label: c.name }))}
+              options={coursesList.map((c) => ({ value: String(c.id), label: c.name }))}
             />
           </div>
         </ProfileBanner>
@@ -119,9 +124,6 @@ function CourseInsights() {
         <div className="panel trend-card">
           <div className="panel-header">
             <h2 className="panel-header__title">Rating Trend</h2>
-            <button type="button" className="panel-header__select">
-              2026 <i className="bi bi-chevron-down" />
-            </button>
           </div>
           <MetricComparisonChart data={metrics.monthlyTrend || []} series={trendSeries} />
         </div>

@@ -18,3 +18,21 @@ export const getSessions = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getSessionAnalysis = async (req, res, next) => {
+  try {
+    const data = await uploadService.getUploadSessionAnalysis(req.params.id);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteSession = async (req, res, next) => {
+  try {
+    const data = await uploadService.deleteUploadSession(req.params.id);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};

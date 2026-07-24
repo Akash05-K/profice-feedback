@@ -20,19 +20,22 @@ export const getFeedbackRecords = async (queryParams) => {
     limit,
   } = queryParams;
 
+  const isAll = (val) => !val || val === "all" || val === "All Colleges" || val === "All Courses" || val === "All Trainers" || val === "overall";
+
   const where = { status };
 
-  if (college && college !== "All Colleges") {
+  if (college && !isAll(college)) {
     where.college = { name: college };
   }
 
-  if (course && course !== "All Courses") {
+  if (course && !isAll(course)) {
     where.course = { title: course };
   }
 
-  if (trainer && trainer !== "All Trainers") {
+  if (trainer && !isAll(trainer)) {
     where.trainer = { name: trainer };
   }
+
 
   if (sentiment && sentiment !== "all") {
     where.sentiment = sentiment;
@@ -123,6 +126,7 @@ export const getFeedbackRecords = async (queryParams) => {
     }),
     prisma.feedbackRecord.count({ where }),
   ]);
+  
 
   const formattedRows = records.map((r) => ({
     id: r.feedbackCode,
@@ -146,44 +150,37 @@ export const getFeedbackRecords = async (queryParams) => {
 export const getFeedbackFilterOptions = async (queryParams = {}) => {
   const { college, course } = queryParams;
 
-  const colleges = await prisma.college.findMany({
-    select: { name: true },
-    orderBy: { name: "asc" },
+  const records = await prisma.feedbackRecord.findMany({
+    where: { status: "active" },
+    select: {
+      college: { select: { name: true } },
+      course: { select: { title: true } },
+      trainer: { select: { name: true } },
+    },
   });
 
-  const courseWhere = {};
-  if (college && college !== "All Colleges") {
-    courseWhere.college = { name: college };
-  }
+  const collegesSet = new Set();
+  const coursesSet = new Set();
+  const trainersSet = new Set();
 
-  const courses = await prisma.course.findMany({
-    where: courseWhere,
-    select: { title: true },
-    orderBy: { title: "asc" },
-  });
+  records.forEach((r) => {
+    if (r.college?.name) collegesSet.add(r.college.name);
 
-  const trainerWhere = {};
-  if (college && college !== "All Colleges") {
-    trainerWhere.college = { name: college };
-  }
-  if (course && course !== "All Courses") {
-    trainerWhere.batches = {
-      some: {
-        course: { title: course },
-      },
-    };
-  }
+    const matchCollege = !college || college === "All Colleges" || college === "all" || r.college?.name === college;
+    if (r.course?.title && matchCollege) {
+      coursesSet.add(r.course.title);
+    }
 
-  const trainers = await prisma.trainer.findMany({
-    where: trainerWhere,
-    select: { name: true },
-    orderBy: { name: "asc" },
+    const matchCourse = !course || course === "All Courses" || course === "all" || r.course?.title === course;
+    if (r.trainer?.name && matchCollege && matchCourse) {
+      trainersSet.add(r.trainer.name);
+    }
   });
 
   return {
-    colleges: ["All Colleges", ...colleges.map((c) => c.name)],
-    courses: ["All Courses", ...Array.from(new Set(courses.map((c) => c.title)))],
-    trainers: ["All Trainers", ...Array.from(new Set(trainers.map((t) => t.name)))],
+    colleges: ["All Colleges", ...Array.from(collegesSet).sort()],
+    courses: ["All Courses", ...Array.from(coursesSet).sort()],
+    trainers: ["All Trainers", ...Array.from(trainersSet).sort()],
   };
 };
 
