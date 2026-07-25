@@ -3,16 +3,16 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
 model User {
   id           Int       @id @default(autoincrement())
-  email        String    @unique @db.VarChar(255)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  name         String    @db.VarChar(100)
-  role         UserRole  @default(super_admin)
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  role         String    @default("super_admin")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   notifications           Notification[]
@@ -22,19 +22,10 @@ model User {
   @@map("users")
 }
 
-enum UserRole {
-  super_admin     @map("super_admin")
-  management      @map("management")
-  program_manager @map("program_manager")
-  trainer         @map("trainer")
-  ace_lead        @map("ace_lead")
-}
-
-
 model College {
   id        Int       @id @default(autoincrement())
-  name      String    @unique @db.VarChar(255)
-  city      String?   @db.VarChar(100)
+  name      String    @unique
+  city      String?
   createdAt DateTime  @default(now()) @map("created_at")
 
   trainers        Trainer[]
@@ -46,9 +37,9 @@ model College {
 
 model Trainer {
   id                 Int       @id @default(autoincrement())
-  name               String    @db.VarChar(100)
-  email              String?   @unique @db.VarChar(255)
-  subjectSpecialties Json?     @map("subject_specialties")
+  name               String
+  email              String?   @unique
+  subjectSpecialties String?   @map("subject_specialties")
   collegeId          Int       @map("college_id")
   createdAt          DateTime  @default(now()) @map("created_at")
 
@@ -63,8 +54,8 @@ model Trainer {
 
 model Course {
   id            Int       @id @default(autoincrement())
-  title         String    @db.VarChar(255)
-  category      String?   @db.VarChar(100)
+  title         String
+  category      String?
   durationWeeks Int?      @map("duration_weeks")
   collegeId     Int       @map("college_id")
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -79,12 +70,12 @@ model Course {
 
 model Batch {
   id            Int       @id @default(autoincrement())
-  batchCode     String    @unique @map("batch_code") @db.VarChar(50)
+  batchCode     String    @unique @map("batch_code")
   courseId      Int       @map("course_id")
   trainerId     Int       @map("trainer_id")
   totalStudents Int       @default(0) @map("total_students")
-  startDate     DateTime? @map("start_date") @db.Date
-  endDate       DateTime? @map("end_date") @db.Date
+  startDate     DateTime? @map("start_date")
+  endDate       DateTime? @map("end_date")
 
   course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   trainer         Trainer          @relation(fields: [trainerId], references: [id], onDelete: Cascade)
@@ -97,19 +88,19 @@ model Batch {
 
 model FeedbackRecord {
   id              Int            @id @default(autoincrement())
-  feedbackCode    String         @unique @map("feedback_code") @db.VarChar(20)
-  studentName     String         @map("student_name") @db.VarChar(100)
-  department      String?        @db.VarChar(100)
+  feedbackCode    String         @unique @map("feedback_code")
+  studentName     String         @map("student_name")
+  department      String?
   batchId         Int?           @map("batch_id")
   courseId        Int            @map("course_id")
   trainerId       Int            @map("trainer_id")
   collegeId       Int            @map("college_id")
-  rating          Int            @db.TinyInt
-  sentiment       Sentiment
-  feedbackText    String         @map("feedback_text") @db.Text
-  aiKeywords      Json?          @map("ai_keywords")
+  rating          Int
+  sentiment       String
+  feedbackText    String         @map("feedback_text")
+  aiKeywords      String?        @map("ai_keywords")
   aiConfidence    Float?         @map("ai_confidence")
-  status          FeedbackStatus @default(active)
+  status          String         @default("active")
   uploadSessionId Int?           @map("upload_session_id")
   createdAt       DateTime       @default(now()) @map("created_at")
 
@@ -131,29 +122,18 @@ model FeedbackRecord {
   @@map("feedback_records")
 }
 
-enum Sentiment {
-  positive
-  neutral
-  negative
-}
-
-enum FeedbackStatus {
-  active
-  archived
-}
-
 model ActionItem {
-  id                  Int          @id @default(autoincrement())
-  actionCode          String       @unique @map("action_code") @db.VarChar(20)
-  title               String       @db.VarChar(255)
-  assignedToTrainerId Int          @map("assigned_to_trainer_id")
-  priority            Priority     @default(medium)
-  dueDate             DateTime     @map("due_date") @db.Date
-  status              ActionStatus @default(open)
-  progressPercent     Int          @default(0) @map("progress_percent") @db.TinyInt
-  notes               String?      @db.Text
-  completedAt         DateTime?    @map("completed_at") @db.Date
-  createdAt           DateTime     @default(now()) @map("created_at")
+  id                  Int       @id @default(autoincrement())
+  actionCode          String    @unique @map("action_code")
+  title               String
+  assignedToTrainerId Int       @map("assigned_to_trainer_id")
+  priority            String    @default("medium")
+  dueDate             DateTime  @map("due_date")
+  status              String    @default("open")
+  progressPercent     Int       @default(0) @map("progress_percent")
+  notes               String?
+  completedAt         DateTime? @map("completed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
 
   assignedTo Trainer @relation(fields: [assignedToTrainerId], references: [id], onDelete: Cascade)
 
@@ -164,27 +144,14 @@ model ActionItem {
   @@map("action_items")
 }
 
-enum Priority {
-  high
-  medium
-  low
-}
-
-enum ActionStatus {
-  open
-  in_progress @map("in-progress")
-  completed
-  overdue
-}
-
 model Notification {
-  id             Int              @id @default(autoincrement())
-  userId         Int              @map("user_id")
-  type           NotificationType
-  message        String           @db.Text
-  recipientLabel String?          @map("recipient_label") @db.VarChar(100)
-  isRead         Boolean          @default(false) @map("is_read")
-  createdAt      DateTime         @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  type           String
+  message        String
+  recipientLabel String?  @map("recipient_label")
+  isRead         Boolean  @default(false) @map("is_read")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -193,12 +160,6 @@ model Notification {
   @@index([isRead])
   @@index([createdAt])
   @@map("notifications")
-}
-
-enum NotificationType {
-  in_app @map("in-app")
-  email
-  alert
 }
 
 model NotificationPreference {
@@ -215,14 +176,14 @@ model NotificationPreference {
 }
 
 model UploadSession {
-  id            Int          @id @default(autoincrement())
-  uploadedBy    Int          @map("uploaded_by")
-  filename      String       @db.VarChar(255)
-  totalRows     Int          @default(0) @map("total_rows")
-  processedRows Int          @default(0) @map("processed_rows")
-  status        UploadStatus @default(processing)
-  summary       Json?
-  createdAt     DateTime     @default(now()) @map("created_at")
+  id            Int      @id @default(autoincrement())
+  uploadedBy    Int      @map("uploaded_by")
+  filename      String
+  totalRows     Int      @default(0) @map("total_rows")
+  processedRows Int      @default(0) @map("processed_rows")
+  status        String   @default("processing")
+  summary       String?
+  createdAt     DateTime @default(now()) @map("created_at")
 
   uploader        User             @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
   feedbackRecords FeedbackRecord[]
@@ -230,10 +191,4 @@ model UploadSession {
   @@index([uploadedBy])
   @@index([status])
   @@map("upload_sessions")
-}
-
-enum UploadStatus {
-  processing
-  completed
-  failed
 }

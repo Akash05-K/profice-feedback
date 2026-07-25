@@ -122,7 +122,7 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
   const negMap = {};
   records.forEach((r) => {
     if (r.sentiment === "negative") {
-      const kws = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
+      const kws = (() => { if (!r.aiKeywords) return []; if (Array.isArray(r.aiKeywords)) return r.aiKeywords; try { return JSON.parse(r.aiKeywords); } catch { return [r.aiKeywords]; } })();
       kws.forEach((kw) => {
         const clean = String(kw).toLowerCase().trim();
         if (clean) negMap[clean] = (negMap[clean] || 0) + 1;

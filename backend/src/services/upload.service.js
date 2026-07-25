@@ -145,7 +145,7 @@ export const processUploadedFile = async (file, userId) => {
       let foundTrainer = await prisma.trainer.findFirst({ where: { name: trainerName, collegeId } });
       if (!foundTrainer) {
         foundTrainer = await prisma.trainer.create({
-          data: { name: trainerName, collegeId, subjectSpecialties: ["General Instruction"] },
+          data: { name: trainerName, collegeId, subjectSpecialties: JSON.stringify(["General Instruction"]) },
         });
       }
       trainerCache[`${collegeId}_${trainerName}`] = foundTrainer.id;
@@ -212,7 +212,7 @@ export const processUploadedFile = async (file, userId) => {
         rating,
         sentiment,
         feedbackText: text,
-        aiKeywords: keywords,
+        aiKeywords: JSON.stringify(keywords),
         aiConfidence: confidence,
         status: "active",
         uploadSessionId: uploadSession.id,
@@ -225,7 +225,7 @@ export const processUploadedFile = async (file, userId) => {
     data: {
       processedRows: rows.length,
       status: "completed",
-      summary: { positive, neutral, negative },
+     summary: JSON.stringify({ positive, neutral, negative }),
     },
   });
 
@@ -314,7 +314,20 @@ export const getUploadSessionAnalysis = async (sessionId) => {
 
     confidenceSum += typeof r.aiConfidence === "number" ? r.aiConfidence : 0;
 
-    const kws = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
+    let kws = [];
+    if (r.aiKeywords) {
+      if (Array.isArray(r.aiKeywords)) {
+        kws = r.aiKeywords;
+      } else {
+        try {
+          kws = JSON.parse(r.aiKeywords);
+        } catch {
+          kws = [];
+        }
+      }
+    }
+    if (!Array.isArray(kws)) kws = [];
+
     kws.forEach((kw) => {
       const clean = String(kw).toLowerCase().trim();
       if (clean) {

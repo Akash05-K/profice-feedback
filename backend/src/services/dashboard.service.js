@@ -95,7 +95,20 @@ export const getTopTopics = async () => {
   const improvementMap = {};
 
   records.forEach((r) => {
-    const keywords = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
+    let keywords = [];
+    if (r.aiKeywords) {
+      if (Array.isArray(r.aiKeywords)) {
+        keywords = r.aiKeywords;
+      } else {
+        try {
+          keywords = JSON.parse(r.aiKeywords);
+        } catch {
+          keywords = [];
+        }
+      }
+    }
+    if (!Array.isArray(keywords)) keywords = [];
+
     keywords.forEach((kw) => {
       const cleanKw = String(kw).toLowerCase().trim();
       if (!cleanKw) return;

@@ -177,7 +177,7 @@ export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => 
     college: r.college.name,
     department: r.department || "Computer Science",
     batch: r.batch ? r.batch.batchCode : "GEN-B01",
-    keywords: Array.isArray(r.aiKeywords) ? r.aiKeywords : [],
+    keywords: (() => { if (!r.aiKeywords) return []; if (Array.isArray(r.aiKeywords)) return r.aiKeywords; try { return JSON.parse(r.aiKeywords); } catch { return [r.aiKeywords]; } })(),
     confidence: typeof r.aiConfidence === "number" ? Math.round(r.aiConfidence * 100) : null,
   }));
 
