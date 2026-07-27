@@ -29,13 +29,18 @@ async function main() {
   console.log(`✅ Admin user created: ${admin.email}`);
 
   // 1b. Demo users for every RBAC role (password shown for local testing only).
-  // The trainer user's email matches a seeded Trainer record so data-scoping works.
+  // 1b. Demo users for every RBAC role (password shown for local testing only).
+  // The trainer users' emails match seeded Trainer records so data-scoping works.
   const demoUsers = [
     { email: "management@profice.edu", name: "Maya Management", role: "management", password: "manage123" },
     { email: "pm@profice.edu", name: "Pavan Program-Manager", role: "program_manager", password: "pm123" },
     { email: "acelead@profice.edu", name: "Asha ACE-Lead", role: "ace_lead", password: "ace123" },
-    // Linked by email to the seeded Trainer "Dr. Kumar" (who has feedback) so trainer scoping is demoable.
-    { email: "dr.kumar@psgtech.ac.in", name: "Dr. Kumar", role: "trainer", password: "trainer123" },
+    // 5 Seeded Trainer Users (matched by email/name to Trainer records)
+    { email: "harish@profice.edu", name: "Harish", role: "trainer", password: "trainer123" },
+    { email: "akash@profice.edu", name: "Akash", role: "trainer", password: "trainer123" },
+    { email: "harsha@profice.edu", name: "Harsha", role: "trainer", password: "trainer123" },
+    { email: "theesthan@profice.edu", name: "Theesthan", role: "trainer", password: "trainer123" },
+    { email: "lokesh@profice.edu", name: "Lokesh", role: "trainer", password: "trainer123" },
   ];
 
   for (const u of demoUsers) {
@@ -82,23 +87,20 @@ async function main() {
 
   console.log("✅ Colleges created.");
 
-  // 3. Create Trainers
+  // 3. Create Trainers (Harish, Akash, Harsha, Theesthan, Lokesh)
   const trainersData = [
-    { name: "Dr. Kumar", email: "dr.kumar@psgtech.ac.in", collegeId: psg.id, specialties: ["Machine Learning & AI", "Data Structures", "Ethical Hacking", "VLSI Design"] },
-    { name: "Prof. Priya", email: "prof.priya@psgtech.ac.in", collegeId: psg.id, specialties: ["Java Programming", "Embedded Systems", "Artificial Intelligence", "Software Testing"] },
-    { name: "Dr. Arjun", email: "dr.arjun@cit.edu.in", collegeId: cit.id, specialties: ["Quantum Computing", "Python Programming", "Compiler Design", "Cryptography"] },
-    { name: "Prof. Meena", email: "prof.meena@gct.ac.in", collegeId: gct.id, specialties: ["Python Programming", "Cloud Computing", "Big Data Analytics"] },
-    { name: "Karthik S", email: "karthik.s@psgtech.ac.in", collegeId: psg.id, specialties: ["MERN Stack", "Python Programming"] },
-    { name: "Priya N", email: "priya.n@psgtech.ac.in", collegeId: psg.id, specialties: ["Data Science"] },
-    { name: "Arjun D", email: "arjun.d@cit.edu.in", collegeId: cit.id, specialties: ["UI/UX Design"] },
-    { name: "Meera J", email: "meera.j@gct.ac.in", collegeId: gct.id, specialties: ["Cloud Computing"] },
+    { name: "Harish", email: "harish@profice.edu", collegeId: psg.id, specialties: ["Fullstack Development", "MERN Stack Development"] },
+    { name: "Akash", email: "akash@profice.edu", collegeId: psg.id, specialties: ["Data Science", "Python Programming", "Machine Learning"] },
+    { name: "Harsha", email: "harsha@profice.edu", collegeId: cit.id, specialties: ["Fullstack Development", "UI/UX Design"] },
+    { name: "Theesthan", email: "theesthan@profice.edu", collegeId: cit.id, specialties: ["Cloud Computing", "DevOps"] },
+    { name: "Lokesh", email: "lokesh@profice.edu", collegeId: gct.id, specialties: ["MERN Stack Development", "Python Programming"] },
   ];
 
   const trainersMap = {};
   for (const t of trainersData) {
     const trainer = await prisma.trainer.upsert({
       where: { email: t.email },
-      update: {},
+      update: { name: t.name, collegeId: t.collegeId, subjectSpecialties: JSON.stringify(t.specialties) },
       create: {
         name: t.name,
         email: t.email,
@@ -112,45 +114,41 @@ async function main() {
 
   // 4. Create Courses
   const coursesData = [
-    { title: "M.Sc Theoretical Computer Science", category: "Computer Science", durationWeeks: 16, collegeId: psg.id },
-    { title: "M.Sc Data Science", category: "Data & Analytics", durationWeeks: 16, collegeId: psg.id },
-    { title: "M.Sc Software Systems", category: "Web Development", durationWeeks: 12, collegeId: psg.id },
-    { title: "M.Sc Cyber Security", category: "Cyber Security", durationWeeks: 16, collegeId: psg.id },
-    { title: "B.Tech AIDS", category: "Artificial Intelligence", durationWeeks: 16, collegeId: psg.id },
-    { title: "B.Tech ECE", category: "Electronics", durationWeeks: 16, collegeId: psg.id },
+    { title: "Fullstack Development", category: "Web Development", durationWeeks: 16, collegeId: psg.id },
     { title: "MERN Stack Development", category: "Web Development", durationWeeks: 12, collegeId: psg.id },
     { title: "Data Science", category: "Data & Analytics", durationWeeks: 16, collegeId: psg.id },
+    { title: "Python Programming", category: "Programming", durationWeeks: 8, collegeId: psg.id },
+    { title: "Fullstack Development", category: "Web Development", durationWeeks: 16, collegeId: cit.id },
     { title: "UI/UX Design", category: "Design", durationWeeks: 10, collegeId: cit.id },
-    { title: "Cloud Computing", category: "Cloud & DevOps", durationWeeks: 14, collegeId: gct.id },
+    { title: "Cloud Computing", category: "Cloud & DevOps", durationWeeks: 14, collegeId: cit.id },
+    { title: "MERN Stack Development", category: "Web Development", durationWeeks: 12, collegeId: gct.id },
     { title: "Python Programming", category: "Programming", durationWeeks: 8, collegeId: gct.id },
   ];
 
   const coursesMap = {};
   for (const c of coursesData) {
-    let course = await prisma.course.findFirst({ where: { title: c.title } });
+    let course = await prisma.course.findFirst({ where: { title: c.title, collegeId: c.collegeId } });
     if (!course) {
       course = await prisma.course.create({
         data: c,
       });
     }
+    coursesMap[`${c.collegeId}_${c.title}`] = course;
     coursesMap[c.title] = course;
   }
   console.log("✅ Courses created.");
 
   // 5. Create Batches
   const batchesData = [
-    { batchCode: "MERN-B12", courseTitle: "MERN Stack Development", trainerName: "Karthik S", totalStudents: 32 },
-    { batchCode: "DS-B07", courseTitle: "Data Science", trainerName: "Priya N", totalStudents: 28 },
-    { batchCode: "UIUX-B05", courseTitle: "UI/UX Design", trainerName: "Arjun D", totalStudents: 24 },
-    { batchCode: "CLOUD-B09", courseTitle: "Cloud Computing", trainerName: "Meera J", totalStudents: 30 },
-    { batchCode: "PY-B14", courseTitle: "Python Programming", trainerName: "Karthik S", totalStudents: 35 },
-    { batchCode: "MERN-B13", courseTitle: "MERN Stack Development", trainerName: "Priya N", totalStudents: 29 },
-    { batchCode: "DS-23PD", courseTitle: "M.Sc Data Science", trainerName: "Dr. Kumar", totalStudents: 30 },
-    { batchCode: "MERN-23PW", courseTitle: "M.Sc Software Systems", trainerName: "Prof. Priya", totalStudents: 30 },
-    { batchCode: "CLOUD-23PC", courseTitle: "M.Sc Cyber Security", trainerName: "Dr. Arjun", totalStudents: 25 },
-    { batchCode: "PY-23PT", courseTitle: "M.Sc Theoretical Computer Science", trainerName: "Dr. Kumar", totalStudents: 28 },
-    { batchCode: "UIUX-23PA", courseTitle: "B.Tech AIDS", trainerName: "Prof. Meena", totalStudents: 30 },
-    { batchCode: "MERN-23PE", courseTitle: "B.Tech ECE", trainerName: "Prof. Priya", totalStudents: 25 },
+    { batchCode: "FS-B01", courseTitle: "Fullstack Development", trainerName: "Harish", totalStudents: 30 },
+    { batchCode: "MERN-B12", courseTitle: "MERN Stack Development", trainerName: "Harish", totalStudents: 32 },
+    { batchCode: "DS-B07", courseTitle: "Data Science", trainerName: "Akash", totalStudents: 28 },
+    { batchCode: "PY-B14", courseTitle: "Python Programming", trainerName: "Akash", totalStudents: 35 },
+    { batchCode: "FS-B02", courseTitle: "Fullstack Development", trainerName: "Harsha", totalStudents: 25 },
+    { batchCode: "UIUX-B05", courseTitle: "UI/UX Design", trainerName: "Harsha", totalStudents: 24 },
+    { batchCode: "CLOUD-B09", courseTitle: "Cloud Computing", trainerName: "Theesthan", totalStudents: 30 },
+    { batchCode: "MERN-B13", courseTitle: "MERN Stack Development", trainerName: "Lokesh", totalStudents: 29 },
+    { batchCode: "PY-B15", courseTitle: "Python Programming", trainerName: "Lokesh", totalStudents: 30 },
   ];
 
   const batchesMap = {};

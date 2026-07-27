@@ -7,6 +7,7 @@ import StrengthsWeaknesses from "../../components/widgets/StrengthsWeaknesses";
 import RecommendedActions from "../../components/widgets/RecommendedActions";
 import MonthlyRatingChart from "../../components/charts/MonthlyRatingChart";
 import api from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 
 const statCardsConfig = [
   { key: "overallRating", label: "Overall Rating", icon: "bi-star-fill", tone: "amber", suffix: "/ 5" },
@@ -16,6 +17,9 @@ const statCardsConfig = [
 ];
 
 function TrainerInsights() {
+  const { user } = useAuth();
+  const isTrainer = user?.role === "trainer";
+
   const [selectedCollege, setSelectedCollege] = useState("All Colleges");
   const [selectedCourse, setSelectedCourse] = useState("All Courses");
   const [trainerId, setTrainerId] = useState("overall");
@@ -46,12 +50,17 @@ function TrainerInsights() {
       if (res.data) {
         setAvailableColleges(res.data.colleges || ["All Colleges"]);
         setAvailableCourses(res.data.courses || ["All Courses"]);
-        setTrainersList(res.data.trainers || [{ id: "overall", name: "Overall Classification" }]);
+        if (res.data.trainers && res.data.trainers.length > 0) {
+          setTrainersList(res.data.trainers);
+          if (isTrainer) {
+            setTrainerId(String(res.data.trainers[0].id));
+          }
+        }
       }
     } catch (e) {
       console.error("Filter options fetch error:", e);
     }
-  }, [selectedCollege, selectedCourse]);
+  }, [selectedCollege, selectedCourse, isTrainer]);
 
   useEffect(() => {
     loadFilterOptions();
@@ -60,7 +69,8 @@ function TrainerInsights() {
   // Load trainer metrics with all 3 filters
   const loadMetrics = useCallback(async () => {
     try {
-      const res = await api.getTrainerMetrics(trainerId, {
+      const targetTrainerId = isTrainer ? (trainersList[0]?.id || "overall") : trainerId;
+      const res = await api.getTrainerMetrics(targetTrainerId, {
         college: selectedCollege,
         course: selectedCourse,
       });
@@ -70,7 +80,7 @@ function TrainerInsights() {
     } catch (e) {
       console.error("Fetch metrics error:", e);
     }
-  }, [trainerId, selectedCollege, selectedCourse]);
+  }, [trainerId, selectedCollege, selectedCourse, isTrainer, trainersList]);
 
   useEffect(() => {
     loadMetrics();
@@ -79,20 +89,20 @@ function TrainerInsights() {
   const handleCollegeChange = (val) => {
     setSelectedCollege(val);
     setSelectedCourse("All Courses");
-    setTrainerId("overall");
   };
 
   const handleCourseChange = (val) => {
     setSelectedCourse(val);
-    setTrainerId("overall");
   };
 
   const handleTrainerChange = (val) => {
-    setTrainerId(val);
+    if (!isTrainer) {
+      setTrainerId(val);
+    }
   };
 
   const currentTrainerObj = trainersList.find((t) => String(t.id) === String(trainerId)) || trainersList[0];
-  const trainerName = currentTrainerObj ? currentTrainerObj.name : "Overall Classification";
+  const trainerName = isTrainer ? (user?.name || "My Performance") : (currentTrainerObj ? currentTrainerObj.name : "Overall Classification");
 
   const statCards = statCardsConfig.map((config) => ({
     id: config.key,
@@ -105,7 +115,7 @@ function TrainerInsights() {
 
   return (
     <AppLayout title="Trainer Insights">
-      {/* Trainer profile + 3 cascading dropdown filters */}
+      {/* Trainer profile + cascading dropdown filters */}
       <div className="dashboard-row">
         <ProfileBanner
           avatarIcon="bi-person-workspace"
@@ -132,12 +142,14 @@ function TrainerInsights() {
               }))}
             />
 
-            <SelectDropdown
-              icon="bi-person"
-              value={trainerId}
-              onChange={handleTrainerChange}
-              options={trainersList.map((t) => ({ value: String(t.id), label: t.name }))}
-            />
+            {!isTrainer && (
+              <SelectDropdown
+                icon="bi-person"
+                value={trainerId}
+                onChange={handleTrainerChange}
+                options={trainersList.map((t) => ({ value: String(t.id), label: t.name }))}
+              />
+            )}
           </div>
         </ProfileBanner>
       </div>

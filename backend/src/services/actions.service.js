@@ -141,8 +141,17 @@ export const createAction = async (data) => {
     trainer = await prisma.trainer.findFirst();
   }
 
-  const count = await prisma.actionItem.count();
-  const actionCode = generateActionCode(count);
+  let maxCodeNum = 112;
+  const lastAction = await prisma.actionItem.findFirst({
+    orderBy: { id: "desc" },
+    select: { id: true, actionCode: true },
+  });
+  if (lastAction) {
+    const match = lastAction.actionCode && lastAction.actionCode.match(/\d+/);
+    const parsedNum = match ? parseInt(match[0], 10) : 0;
+    maxCodeNum = Math.max(112, parsedNum, 112 + lastAction.id);
+  }
+  const actionCode = generateActionCode(maxCodeNum + 1);
 
   const formattedStatus = status === "in-progress" ? "in_progress" : status || "open";
 

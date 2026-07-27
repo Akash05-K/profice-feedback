@@ -37,9 +37,24 @@ export const processUploadedFile = async (file, userId) => {
 
   const defaultCollege = (await prisma.college.findFirst()) || { id: 1, name: "PSG College of Technology" };
   const defaultCourse = (await prisma.course.findFirst()) || { id: 1, title: "M.Sc Data Science" };
-  const defaultTrainer = (await prisma.trainer.findFirst()) || { id: 1, name: "Dr. Kumar" };
+  const defaultTrainer = (await prisma.trainer.findFirst()) || { id: 1, name: "Harish" };
 
-  const existingCount = await prisma.feedbackRecord.count();
+  // Fetch ALL existing feedback codes to find the true max numeric suffix across the DB
+  const existingRecords = await prisma.feedbackRecord.findMany({
+    select: { feedbackCode: true },
+  });
+  const usedCodes = new Set(existingRecords.map((r) => r.feedbackCode));
+  let highestNum = 1042;
+  existingRecords.forEach((r) => {
+    if (r.feedbackCode) {
+      const match = r.feedbackCode.match(/\d+/);
+      if (match) {
+        const num = parseInt(match[0], 10);
+        if (num > highestNum) highestNum = num;
+      }
+    }
+  });
+  let currentCodeNum = highestNum + 1;
   const collegeCache = {};
   const courseCache = {};
   const trainerCache = {};
@@ -176,15 +191,27 @@ export const processUploadedFile = async (file, userId) => {
     } else {
       let foundBatch = await prisma.batch.findFirst({ where: { batchCode } });
       if (!foundBatch) {
-        foundBatch = await prisma.batch.create({
-          data: { batchCode, courseId, trainerId, totalStudents: 30 },
-        });
+        try {
+          foundBatch = await prisma.batch.create({
+            data: { batchCode, courseId, trainerId, totalStudents: 30 },
+          });
+        } catch (err) {
+          foundBatch = await prisma.batch.findFirst({ where: { batchCode } });
+        }
       }
-      batchCache[batchCode] = foundBatch.id;
-      batchId = foundBatch.id;
+      if (foundBatch) {
+        batchCache[batchCode] = foundBatch.id;
+        batchId = foundBatch.id;
+      }
     }
 
-    const code = generateFeedbackCode(existingCount + i);
+    let code = `FB-${currentCodeNum}`;
+    while (usedCodes.has(code)) {
+      currentCodeNum++;
+      code = `FB-${currentCodeNum}`;
+    }
+    usedCodes.add(code);
+    currentCodeNum++;
 
     // Keywords: AI-extracted when available, else a naive text extraction fallback.
     let keywords;

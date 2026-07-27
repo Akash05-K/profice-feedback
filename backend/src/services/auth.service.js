@@ -69,12 +69,28 @@ export const loginUser = async ({ email, password }) => {
  * no matching trainer record).
  */
 export const resolveTrainerScope = async (user) => {
-  if (!user || user.role !== "trainer" || !user.email) return null;
+  if (!user || user.role !== "trainer") return null;
 
-  const trainer = await prisma.trainer.findFirst({
-    where: { email: { equals: user.email } },
-    select: { id: true, name: true },
-  });
+  let trainer = null;
+  if (user.email) {
+    trainer = await prisma.trainer.findFirst({
+      where: { email: { equals: user.email } },
+      select: { id: true, name: true },
+    });
+  }
+
+  if (!trainer && user.name) {
+    const trimmedName = user.name.trim();
+    trainer = await prisma.trainer.findFirst({
+      where: {
+        OR: [
+          { name: { equals: trimmedName } },
+          { name: { contains: trimmedName } },
+        ],
+      },
+      select: { id: true, name: true },
+    });
+  }
 
   return trainer ? trainer.id : null;
 };

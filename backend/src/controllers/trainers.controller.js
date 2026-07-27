@@ -3,7 +3,8 @@ import { resolveTrainerScope } from "../services/auth.service.js";
 
 export const getFilterOptions = async (req, res, next) => {
   try {
-    const data = await trainersService.getTrainerFilterOptions(req.query);
+    const scopeTrainerId = await resolveTrainerScope(req.user);
+    const data = await trainersService.getTrainerFilterOptions(req.query, scopeTrainerId);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

@@ -21,11 +21,16 @@ export const buildRatingTrend = (records) => {
     .map(([, v]) => ({ month: v.label, rating: Number((v.sum / v.n).toFixed(2)) }));
 };
 
-export const getTrainerFilterOptions = async (queryParams = {}) => {
+export const getTrainerFilterOptions = async (queryParams = {}, scopeTrainerId = null) => {
   const { college, course } = queryParams;
 
+  const where = { status: "active" };
+  if (scopeTrainerId) {
+    where.trainerId = scopeTrainerId;
+  }
+
   const records = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
+    where,
     select: {
       college: { select: { name: true } },
       course: { select: { title: true } },
@@ -58,10 +63,9 @@ export const getTrainerFilterOptions = async (queryParams = {}) => {
   return {
     colleges: ["All Colleges", ...Array.from(collegesSet).sort()],
     courses: ["All Courses", ...Array.from(coursesSet).sort()],
-    trainers: [
-      { id: "overall", name: "Overall Classification" },
-      ...trainersList,
-    ],
+    trainers: scopeTrainerId
+      ? trainersList
+      : [{ id: "overall", name: "Overall Classification" }, ...trainersList],
   };
 };
 
