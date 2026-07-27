@@ -64,6 +64,7 @@ export const api = {
   getSentimentDistribution: () => API.get("/dashboard/sentiment"),
   getTopTopics: () => API.get("/dashboard/topics"),
   getRecentFeedback: () => API.get("/dashboard/recent"),
+  getTrainerAlert: () => API.get("/dashboard/trainer-alert"),
 
   // Feedback Repository
   getFeedbackRecords: (params) => API.get("/feedback", { params }),

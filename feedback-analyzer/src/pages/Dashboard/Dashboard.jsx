@@ -9,6 +9,7 @@ import AISummaryCard from "../../components/widgets/AISummaryCard";
 import RankedTopicList from "../../components/widgets/RankedTopicList";
 import RecentFeedbackList from "../../components/widgets/RecentFeedbackList";
 import QuickActions from "../../components/widgets/QuickActions";
+import TrainerAlertBanner from "../../components/widgets/TrainerAlertBanner";
 import api from "../../services/api";
 
 import {
@@ -48,19 +49,21 @@ function Dashboard() {
   const [improvementTopics, setImprovementTopics] = useState(fallbackTopImprovementAreas);
   const [recentList, setRecentList] = useState(fallbackRecentFeedback);
   const [aiSummary, setAiSummary] = useState(aiSummaryText);
+  const [alertData, setAlertData] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadDashboardData() {
       try {
-        const [statsRes, trendsRes, sentimentRes, topicsRes, recentRes, summaryRes] = await Promise.allSettled([
+        const [statsRes, trendsRes, sentimentRes, topicsRes, recentRes, summaryRes, alertRes] = await Promise.allSettled([
           api.getDashboardStats(),
           api.getDashboardTrends(),
           api.getSentimentDistribution(),
           api.getTopTopics(),
           api.getRecentFeedback(),
           api.getAiDashboardSummary(),
+          api.getTrainerAlert(),
         ]);
 
         if (isMounted) {
@@ -74,6 +77,9 @@ function Dashboard() {
           if (recentRes.status === "fulfilled" && recentRes.value.data) setRecentList(recentRes.value.data);
           if (summaryRes.status === "fulfilled" && summaryRes.value.data?.text) {
             setAiSummary(summaryRes.value.data.text);
+          }
+          if (alertRes.status === "fulfilled" && alertRes.value.data) {
+            setAlertData(alertRes.value.data);
           }
         }
       } catch (err) {
@@ -121,6 +127,9 @@ function Dashboard() {
 
   return (
     <AppLayout title="Dashboard">
+      {/* Most Negative Trainer Alert Banner */}
+      <TrainerAlertBanner alertData={alertData} />
+
       {/* Stat cards */}
       <div className="stat-card-grid stat-card-grid--three">
         {statCards.map((card) => (

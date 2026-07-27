@@ -71,26 +71,18 @@ export const loginUser = async ({ email, password }) => {
 export const resolveTrainerScope = async (user) => {
   if (!user || user.role !== "trainer") return null;
 
-  let trainer = null;
-  if (user.email) {
-    trainer = await prisma.trainer.findFirst({
-      where: { email: { equals: user.email } },
-      select: { id: true, name: true },
-    });
-  }
+  const trimmedName = user.name ? user.name.trim() : "";
+  const trainers = await prisma.trainer.findMany({
+    where: {
+      OR: [
+        ...(user.email ? [{ email: { equals: user.email } }] : []),
+        ...(trimmedName ? [{ name: { equals: trimmedName } }, { name: { contains: trimmedName } }] : []),
+      ],
+    },
+    select: { id: true },
+  });
 
-  if (!trainer && user.name) {
-    const trimmedName = user.name.trim();
-    trainer = await prisma.trainer.findFirst({
-      where: {
-        OR: [
-          { name: { equals: trimmedName } },
-          { name: { contains: trimmedName } },
-        ],
-      },
-      select: { id: true, name: true },
-    });
-  }
-
-  return trainer ? trainer.id : null;
+  if (!trainers || trainers.length === 0) return null;
+  const ids = trainers.map((t) => t.id);
+  return ids.length === 1 ? ids[0] : ids;
 };

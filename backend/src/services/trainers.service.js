@@ -26,7 +26,11 @@ export const getTrainerFilterOptions = async (queryParams = {}, scopeTrainerId =
 
   const where = { status: "active" };
   if (scopeTrainerId) {
-    where.trainerId = scopeTrainerId;
+    if (Array.isArray(scopeTrainerId)) {
+      where.trainerId = { in: scopeTrainerId };
+    } else {
+      where.trainerId = scopeTrainerId;
+    }
   }
 
   const records = await prisma.feedbackRecord.findMany({
@@ -116,15 +120,23 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
   }
 
   if (trainerId && trainerId !== "overall") {
-    const idNum = parseInt(trainerId, 10);
-    const trainer = await prisma.trainer.findFirst({
-      where: {
-        OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }],
-      },
-    });
+    if (Array.isArray(trainerId)) {
+      where.trainerId = { in: trainerId.map((id) => Number(id)).filter((id) => !isNaN(id)) };
+    } else {
+      const idNum = parseInt(trainerId, 10);
+      const trainer = await prisma.trainer.findFirst({
+        where: {
+          OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }],
+        },
+      });
 
-    if (trainer) {
-      where.trainerId = trainer.id;
+      if (trainer) {
+        const allMatchingTrainers = await prisma.trainer.findMany({
+          where: { name: { equals: trainer.name } },
+          select: { id: true },
+        });
+        where.trainerId = { in: allMatchingTrainers.map((t) => t.id) };
+      }
     }
   }
 

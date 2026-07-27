@@ -152,3 +152,47 @@ export const getRecentFeedback = async () => {
     author: `${r.studentName} (${r.course ? r.course.title : r.college ? r.college.name : "Student"})`,
   }));
 };
+
+export const getMostNegativeTrainerAlert = async () => {
+  const grouped = await prisma.feedbackRecord.groupBy({
+    by: ["trainerId"],
+    where: { status: "active", sentiment: "negative" },
+    _count: { id: true },
+    orderBy: { _count: { id: "desc" } },
+    take: 1,
+  });
+
+  if (!grouped || grouped.length === 0) {
+    return { hasAlert: false };
+  }
+
+  const topNeg = grouped[0];
+  const negativeCount = topNeg._count.id;
+  if (negativeCount === 0) {
+    return { hasAlert: false };
+  }
+
+  const trainer = await prisma.trainer.findUnique({
+    where: { id: topNeg.trainerId },
+    include: { college: true },
+  });
+
+  if (!trainer) {
+    return { hasAlert: false };
+  }
+
+  const totalCount = await prisma.feedbackRecord.count({
+    where: { status: "active", trainerId: trainer.id },
+  });
+
+  return {
+    hasAlert: true,
+    trainerId: String(trainer.id),
+    trainerName: trainer.name,
+    collegeName: trainer.college ? trainer.college.name : "All Colleges",
+    negativeCount,
+    totalCount,
+    message: `Attention Required: Trainer ${trainer.name} has recorded the highest negative feedback (${negativeCount} negative reviews out of ${totalCount} total).`,
+  };
+};
+

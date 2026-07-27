@@ -157,13 +157,14 @@ export const processUploadedFile = async (file, userId) => {
     if (trainerCache[`${collegeId}_${trainerName}`]) {
       trainerId = trainerCache[`${collegeId}_${trainerName}`];
     } else {
-      let foundTrainer = await prisma.trainer.findFirst({ where: { name: trainerName, collegeId } });
+      let foundTrainer = await prisma.trainer.findFirst({ where: { name: trainerName } });
       if (!foundTrainer) {
         foundTrainer = await prisma.trainer.create({
           data: { name: trainerName, collegeId, subjectSpecialties: JSON.stringify(["General Instruction"]) },
         });
       }
       trainerCache[`${collegeId}_${trainerName}`] = foundTrainer.id;
+      trainerCache[trainerName] = foundTrainer.id;
       trainerId = foundTrainer.id;
     }
 

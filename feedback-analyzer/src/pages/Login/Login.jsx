@@ -10,13 +10,11 @@ const DEMO_ACCOUNTS = [
   { role: "Management", email: "management@profice.edu", password: "manage123" },
   { role: "Program Manager", email: "pm@profice.edu", password: "pm123" },
   { role: "ACE Lead", email: "acelead@profice.edu", password: "ace123" },
-  { role: "Trainer", email: "dr.kumar@psgtech.ac.in", password: "trainer123" },
-];
-
-const FEATURES = [
-  { tag: "Managing", text: "Create operational tracking with intelligent oversight to make awesome workflows that suit your needs." },
-  { tag: "Analyzing", text: "Turn raw student feedback into AI-classified sentiment, keywords and actionable insights instantly." },
-  { tag: "Reporting", text: "Generate role-based dashboards and exportable reports across every trainer, course and batch." },
+  { role: "Trainer (Harish)", email: "harish@profice.edu", password: "trainer123" },
+  { role: "Trainer (Akash)", email: "akash@profice.edu", password: "trainer123" },
+  { role: "Trainer (Harsha)", email: "harsha@profice.edu", password: "trainer123" },
+  { role: "Trainer (Theesthan)", email: "theesthan@profice.edu", password: "trainer123" },
+  { role: "Trainer (Lokesh)", email: "lokesh@profice.edu", password: "trainer123" },
 ];
 
 function Login() {
@@ -31,7 +29,6 @@ function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [showDemo, setShowDemo] = useState(false);
-  const [featureIdx, setFeatureIdx] = useState(0);
 
   if (isAuthenticated) {
     return <Navigate to={location.state?.from || firstAccessiblePath(user?.role)} replace />;
@@ -66,9 +63,7 @@ function Login() {
     setErrors({});
   };
 
-  const feature = FEATURES[featureIdx];
-  const cycleFeature = (dir) =>
-    setFeatureIdx((i) => (i + dir + FEATURES.length) % FEATURES.length);
+
 
   return (
     <div className="login-page">
@@ -172,39 +167,7 @@ function Login() {
           )}
         </section>
 
-        {/* ---------- Right: brand panel ---------- */}
-        <aside className="login-right">
-          <h2 className="login-right__headline">
-            Revolutionizing the way we connect, manage, and experience work.
-          </h2>
 
-          <div className="login-logo-card">
-            <svg viewBox="0 0 120 120" className="login-logo" aria-label="Profice">
-              <rect x="20" y="60" width="14" height="34" rx="3" fill="#38bdf8" />
-              <rect x="40" y="44" width="14" height="50" rx="3" fill="#2563eb" />
-              <rect x="60" y="30" width="14" height="64" rx="3" fill="#1d4ed8" />
-              <path d="M74 40 L86 24" stroke="#1d4ed8" strokeWidth="4" strokeLinecap="round" />
-              <path d="M86 24 l-9 1 l3 8 z" fill="#1d4ed8" />
-              <circle cx="84" cy="52" r="9" fill="#38bdf8" />
-              <text x="60" y="112" textAnchor="middle" fontFamily="Inter, sans-serif" fontWeight="800" fontSize="20" fill="#1d4ed8">
-                Profice
-              </text>
-            </svg>
-          </div>
-
-          <div className="login-feature">
-            <span className="login-feature__tag">{feature.tag}</span>
-            <p className="login-feature__text">{feature.text}</p>
-            <div className="login-feature__nav">
-              <button type="button" onClick={() => cycleFeature(-1)} aria-label="Previous">
-                <i className="bi bi-arrow-left" />
-              </button>
-              <button type="button" onClick={() => cycleFeature(1)} aria-label="Next">
-                <i className="bi bi-arrow-right" />
-              </button>
-            </div>
-          </div>
-        </aside>
       </div>
     </div>
   );

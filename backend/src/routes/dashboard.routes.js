@@ -13,5 +13,6 @@ router.get("/trends", dashboardController.getTrends);
 router.get("/sentiment", dashboardController.getSentiment);
 router.get("/topics", dashboardController.getTopics);
 router.get("/recent", dashboardController.getRecent);
+router.get("/trainer-alert", dashboardController.getTrainerAlert);
 
 export default router;
