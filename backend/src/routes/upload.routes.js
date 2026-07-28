@@ -8,14 +8,9 @@ const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
 
 router.use(authenticate);
-// Uploading / analyzing feedback files is a feedback-management action.
-router.use(
-  requireCapability(
-    CAPABILITIES.MANAGE_FEEDBACK,
-    CAPABILITIES.MANAGE_COURSE_BATCH,
-    CAPABILITIES.USE_AI
-  )
-);
+// Uploading / analyzing feedback files is a write action. Management (CEO/MD)
+// is read-only and deliberately does NOT hold UPLOAD_FEEDBACK.
+router.use(requireCapability(CAPABILITIES.UPLOAD_FEEDBACK));
 
 router.post("/analyze", upload.single("file"), uploadController.uploadFile);
 router.get("/sessions", uploadController.getSessions);

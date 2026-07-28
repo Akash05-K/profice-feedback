@@ -7,6 +7,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 
 // Routes
 import authRoutes from "./routes/auth.routes.js";
+import usersRoutes from "./routes/users.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import feedbackRoutes from "./routes/feedback.routes.js";
 import trainersRoutes from "./routes/trainers.routes.js";
@@ -37,6 +38,7 @@ app.get("/api/v1/health", (req, res) => {
 
 // API Routes
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/users", usersRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/feedback", feedbackRoutes);
 app.use("/api/v1/trainers", trainersRoutes);

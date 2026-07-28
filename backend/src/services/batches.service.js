@@ -1,8 +1,9 @@
 import prisma from "../config/db.js";
+import { applyBatchScope, applyFeedbackScope } from "../utils/scope.js";
 
-export const getBatchesList = async () => {
+export const getBatchesList = async (userScope = null) => {
   const activeRecords = await prisma.feedbackRecord.findMany({
-    where: { status: "active", batchId: { not: null } },
+    where: applyFeedbackScope({ status: "active", batchId: { not: null } }, userScope),
     select: { batchId: true, rating: true, sentiment: true },
   });
 
@@ -24,8 +25,11 @@ export const getBatchesList = async () => {
 
   const activeBatchIds = Object.keys(byBatch).map(Number);
 
+  // Scoped a second time on the batch itself: the aggregate above is already
+  // restricted, but this guarantees no out-of-scope trainer name can be joined
+  // in even if a record were mis-filed.
   const batches = await prisma.batch.findMany({
-    where: { id: { in: activeBatchIds } },
+    where: applyBatchScope({ id: { in: activeBatchIds } }, userScope),
     include: { course: true, trainer: true },
     orderBy: { batchCode: "asc" },
   });
@@ -46,8 +50,8 @@ export const getBatchesList = async () => {
   });
 };
 
-export const getBatchStats = async () => {
-  const batches = await getBatchesList();
+export const getBatchStats = async (userScope = null) => {
+  const batches = await getBatchesList(userScope);
   if (batches.length === 0) {
     return {
       totalBatches: 0,

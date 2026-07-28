@@ -36,8 +36,15 @@ API.interceptors.response.use(
 export const api = {
   // Auth
   login: (credentials) => API.post("/auth/login", credentials),
-  register: (data) => API.post("/auth/register", data),
   getMe: () => API.get("/auth/me"),
+
+  // User management (Super Admin & ACE Lead)
+  getUsers: () => API.get("/users"),
+  getUserMeta: () => API.get("/users/meta"),
+  createUser: (data) => API.post("/users", data),
+  updateUser: (id, data) => API.put(`/users/${id}`, data),
+  resetUserPassword: (id, password) => API.patch(`/users/${id}/password`, { password }),
+  deleteUser: (id) => API.delete(`/users/${id}`),
 
   // AI / RAG
   getAiDashboardSummary: () => API.get("/ai/dashboard-summary"),

@@ -11,6 +11,8 @@ import RecentFeedbackList from "../../components/widgets/RecentFeedbackList";
 import QuickActions from "../../components/widgets/QuickActions";
 import TrainerAlertBanner from "../../components/widgets/TrainerAlertBanner";
 import api from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
+import { CAP, canAccessPath } from "../../lib/permissions";
 
 import {
   statCardValues as fallbackStatCardValues,
@@ -30,17 +32,25 @@ const statCardsConfig = [
   { id: "response-rate", label: "Response Rate", icon: "bi-graph-up-arrow", tone: "slate" },
 ];
 
+// `path` doubles as the capability lookup — a quick action is only offered when
+// the role can actually open where it leads.
 const quickActions = [
-  { id: "feedback-repository", label: "Feedback Repository", icon: "bi-archive-fill", tone: "violet" },
-  { id: "trainer-insights", label: "Trainer Insights", icon: "bi-person-workspace", tone: "green" },
-  { id: "import-feedback", label: "Import Feedback", icon: "bi-download", tone: "amber" },
-  { id: "view-reports", label: "View Reports", icon: "bi-file-earmark-text-fill", tone: "blue" },
-  { id: "ai-analysis", label: "AI Analysis", icon: "bi-stars", tone: "violet" },
-  { id: "action-tracker", label: "Action Tracker", icon: "bi-list-check", tone: "danger" },
+  { id: "feedback-repository", label: "Feedback Repository", icon: "bi-archive-fill", tone: "violet", path: "/repository" },
+  { id: "trainer-insights", label: "Trainer Insights", icon: "bi-person-workspace", tone: "green", path: "/trainer-insights" },
+  { id: "import-feedback", label: "Import Feedback", icon: "bi-download", tone: "amber", path: "/ai-analysis", cap: CAP.UPLOAD_FEEDBACK },
+  { id: "view-reports", label: "View Reports", icon: "bi-file-earmark-text-fill", tone: "blue", path: "/reports" },
+  { id: "ai-analysis", label: "AI Analysis", icon: "bi-stars", tone: "violet", path: "/ai-analysis" },
+  { id: "action-tracker", label: "Action Tracker", icon: "bi-list-check", tone: "danger", path: "/action-tracker" },
 ];
 
 function Dashboard() {
   const navigate = useNavigate();
+  const { user, hasCapability } = useAuth();
+
+  const visibleQuickActions = quickActions.filter(
+    (action) =>
+      canAccessPath(user?.role, action.path) && (!action.cap || hasCapability(action.cap))
+  );
 
   const [statsData, setStatsData] = useState(fallbackStatCardValues);
   const [trendsData, setTrendsData] = useState(fallbackFeedbackTrend);
@@ -179,7 +189,7 @@ function Dashboard() {
 
       {/* Quick actions */}
       <div className="dashboard-row">
-        <QuickActions actions={quickActions} onActionClick={handleActionClick} />
+        <QuickActions actions={visibleQuickActions} onActionClick={handleActionClick} />
       </div>
     </AppLayout>
   );

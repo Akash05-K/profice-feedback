@@ -1,17 +1,51 @@
 import prisma from "../config/db.js";
 import * as aiService from "./ai.service.js";
 import { buildRatingTrend } from "./trainers.service.js";
+import {
+  applyCourseScope,
+  applyFeedbackScope,
+  isCourseInScope,
+  isUnrestricted,
+} from "../utils/scope.js";
+
+const OVERALL_COURSE = {
+  id: "overall",
+  name: "Overall Classification",
+  category: "All Categories",
+  duration: "All Courses",
+  college: "All Colleges",
+};
+
+/**
+ * The same course is stored once per college (uploads create a row per college
+ * they encounter), so "Blockchain" can exist a dozen times. Pickers should show
+ * one entry per course title — selecting it rolls up every college offering, in
+ * the same way trainer metrics roll up same-name trainer rows.
+ */
+const dedupeByTitle = (courses) => {
+  const byTitle = new Map();
+
+  courses.forEach((course) => {
+    const existing = byTitle.get(course.name);
+    if (!existing) {
+      byTitle.set(course.name, { ...course, collegeCount: 1 });
+      return;
+    }
+    existing.collegeCount += 1;
+    if (existing.college !== course.college) {
+      existing.college = `${existing.collegeCount} colleges`;
+    }
+  });
+
+  return Array.from(byTitle.values())
+    .map(({ collegeCount, ...course }) => course)
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
 
 export const getCourseFilterOptions = async (queryParams = {}, userScope = null) => {
   const { college } = queryParams;
 
-  let where = { status: "active" };
-  if (userScope?.isProgramManager) {
-    where.OR = [
-      { courseId: { in: userScope.courseIds } },
-      { course: { program: userScope.program } },
-    ];
-  }
+  const where = applyFeedbackScope({ status: "active" }, userScope);
 
   const records = await prisma.feedbackRecord.findMany({
     where,
@@ -24,9 +58,11 @@ export const getCourseFilterOptions = async (queryParams = {}, userScope = null)
   const collegesSet = new Set();
   const coursesMap = new Map();
 
+  // Seed the picker with every in-scope course so a manager sees their full
+  // catalogue before any feedback exists.
   if (userScope?.isProgramManager) {
     const dbCourses = await prisma.course.findMany({
-      where: { program: userScope.program },
+      where: applyCourseScope({}, userScope),
       select: { id: true, title: true, category: true, durationWeeks: true, college: { select: { name: true } } },
     });
     dbCourses.forEach((c) => {
@@ -55,24 +91,16 @@ export const getCourseFilterOptions = async (queryParams = {}, userScope = null)
     }
   });
 
-  const coursesList = Array.from(coursesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const coursesList = dedupeByTitle(Array.from(coursesMap.values()));
 
   return {
     colleges: ["All Colleges", ...Array.from(collegesSet).sort()],
-    courses: [
-      { id: "overall", name: "Overall Classification", category: "All Categories", duration: "All Courses", college: "All Colleges" },
-      ...coursesList,
-    ],
+    courses: [OVERALL_COURSE, ...coursesList],
   };
 };
 
 export const getCoursesList = async (collegeName, userScope = null) => {
-  let courseWhere = {};
-  if (userScope?.isProgramManager) {
-    courseWhere.program = userScope.program;
-  } else if (userScope?.isTrainer && userScope.courseIds?.length > 0) {
-    courseWhere.id = { in: userScope.courseIds };
-  }
+  const courseWhere = applyCourseScope({}, userScope);
 
   if (collegeName && collegeName !== "All Colleges") {
     courseWhere.college = { name: collegeName };
@@ -83,30 +111,30 @@ export const getCoursesList = async (collegeName, userScope = null) => {
     include: { college: true },
   });
 
-  const list = dbCourses.map((c) => ({
-    id: String(c.id),
-    name: c.title,
-    category: c.category || "General",
-    duration: `${c.durationWeeks || 12} weeks`,
-    college: c.college ? c.college.name : "All Colleges",
-  })).sort((a, b) => a.name.localeCompare(b.name));
+  const list = dedupeByTitle(
+    dbCourses.map((c) => ({
+      id: String(c.id),
+      name: c.title,
+      category: c.category || "General",
+      duration: `${c.durationWeeks || 12} weeks`,
+      college: c.college ? c.college.name : "All Colleges",
+    }))
+  );
 
-  return [{ id: "overall", name: "Overall Classification", category: "All Categories", duration: "All Courses", college: "All Colleges" }, ...list];
+  return [OVERALL_COURSE, ...list];
 };
 
 export const getCourseMetrics = async (courseId, queryParams = {}, userScope = null) => {
   const { college } = queryParams;
-  const where = { status: "active" };
+  // Course Insights is doubly constrained: the caller's trainers AND the
+  // caller's course catalogue.
+  const where = applyFeedbackScope({ status: "active" }, userScope);
+  if (!isUnrestricted(userScope)) {
+    where.AND = [...where.AND, { courseId: { in: userScope.courseIds || [] } }];
+  }
 
   if (college && college !== "All Colleges") {
     where.college = { name: college };
-  }
-
-  if (userScope?.isProgramManager) {
-    where.OR = [
-      { courseId: { in: userScope.courseIds } },
-      { course: { program: userScope.program } },
-    ];
   }
 
   if (courseId && courseId !== "overall") {
@@ -118,12 +146,20 @@ export const getCourseMetrics = async (courseId, queryParams = {}, userScope = n
     });
 
     if (course) {
-      if (userScope?.isProgramManager && course.program !== userScope.program && !userScope.courseIds.includes(course.id)) {
+      if (!isCourseInScope(course.id, userScope)) {
         const error = new Error("Access denied. Course belongs to another Program Manager.");
         error.statusCode = 403;
         throw error;
       }
-      where.courseId = course.id;
+
+      // Selecting a course means the course, not one college's copy of it. Roll
+      // up every row with the same title that the caller is allowed to see.
+      const sameTitle = await prisma.course.findMany({
+        where: applyCourseScope({ title: course.title }, userScope),
+        select: { id: true },
+      });
+      const titleIds = sameTitle.map((c) => c.id);
+      where.courseId = { in: titleIds.length > 0 ? titleIds : [course.id] };
     }
   }
 

@@ -1,28 +1,9 @@
 import prisma from "../config/db.js";
 import { getFeedbackRecords, exportFeedbackRecords } from "./feedback.service.js";
 import { generateFeedbackPdf } from "../utils/pdfGenerator.js";
+import { applyFeedbackScope } from "../utils/scope.js";
 
-const applyReportsScope = (where, userScope) => {
-  if (!userScope || userScope.isUnrestricted) return where;
-
-  if (userScope.isProgramManager) {
-    where.AND = [
-      ...(where.AND || []),
-      {
-        OR: [
-          { trainerId: { in: userScope.trainerIds } },
-          { courseId: { in: userScope.courseIds } },
-          { trainer: { program: userScope.program } },
-          { course: { program: userScope.program } },
-        ],
-      },
-    ];
-  } else if (userScope.isTrainer) {
-    const scopeTrainerId = userScope.trainerId;
-    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
-  }
-  return where;
-};
+const applyReportsScope = (where, userScope) => applyFeedbackScope(where, userScope);
 
 export const getReportsData = async (queryParams, userScope = null) => {
   const result = await getFeedbackRecords(queryParams, userScope);

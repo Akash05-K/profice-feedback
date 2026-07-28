@@ -1,28 +1,9 @@
 import prisma from "../config/db.js";
 import * as aiService from "../services/ai.service.js";
 import { resolveUserScope } from "../services/auth.service.js";
+import { applyActionScope, applyFeedbackScope, isTrainerInScope } from "../utils/scope.js";
 
-const applyAiScope = (where, userScope) => {
-  if (!userScope || userScope.isUnrestricted) return where;
-
-  if (userScope.isProgramManager) {
-    where.AND = [
-      ...(where.AND || []),
-      {
-        OR: [
-          { trainerId: { in: userScope.trainerIds } },
-          { courseId: { in: userScope.courseIds } },
-          { trainer: { program: userScope.program } },
-          { course: { program: userScope.program } },
-        ],
-      },
-    ];
-  } else if (userScope.isTrainer) {
-    const scopeTrainerId = userScope.trainerId;
-    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
-  }
-  return where;
-};
+const applyAiScope = (where, userScope) => applyFeedbackScope(where, userScope);
 
 /**
  * GET /api/v1/ai/dashboard-summary
@@ -96,7 +77,7 @@ export const getRecommendations = async (req, res, next) => {
         select: { id: true, name: true, program: true },
       });
       if (trainer) {
-        if (userScope?.isProgramManager && trainer.program !== userScope.program && !userScope.trainerIds.includes(trainer.id)) {
+        if (!isTrainerInScope(trainer.id, userScope)) {
           return res.status(403).json({ success: false, message: "Access denied. Trainer belongs to another Program Manager." });
         }
         where.trainerId = trainer.id;
@@ -104,9 +85,7 @@ export const getRecommendations = async (req, res, next) => {
       }
     }
 
-    const actionWhere = userScope?.isProgramManager
-      ? { status: { in: ["open", "in_progress"] }, assignedTo: { OR: [{ program: userScope.program }, { id: { in: userScope.trainerIds } }] } }
-      : { status: { in: ["open", "in_progress"] } };
+    const actionWhere = applyActionScope({ status: { in: ["open", "in_progress"] } }, userScope);
 
     const [records, pos, neu, neg, openActions] = await Promise.all([
       prisma.feedbackRecord.findMany({

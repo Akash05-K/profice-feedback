@@ -33,9 +33,16 @@ const relativeTime = (date) => {
   return date.toISOString().slice(0, 10);
 };
 
-export const getNotifications = async (queryParams) => {
+/**
+ * Every notification belongs to exactly one user. Each query is keyed on the
+ * caller's own id — previously they were unfiltered, so any signed-in user
+ * could read, mark and delete everyone else's notifications.
+ */
+const ownedBy = (userId) => ({ userId: Number(userId) });
+
+export const getNotifications = async (queryParams, userId) => {
   const { type, filterTab, read, message, startDate, endDate, sortBy, page, limit } = queryParams;
-  const where = {};
+  const where = ownedBy(userId);
 
   if (filterTab === "unread") {
     where.isRead = false;
@@ -90,28 +97,39 @@ export const getNotifications = async (queryParams) => {
   return formatPaginatedResponse(formattedLogs, total, currentPage, pageSize);
 };
 
-export const getNotificationsSummary = async () => {
-  const total = await prisma.notification.count();
-  const unread = await prisma.notification.count({ where: { isRead: false } });
-  const alerts = await prisma.notification.count({ where: { type: "alert" } });
+export const getNotificationsSummary = async (userId) => {
+  const scope = ownedBy(userId);
 
-  const inAppCount = await prisma.notification.count({ where: { type: "in_app" } });
-  const emailCount = await prisma.notification.count({ where: { type: "email" } });
-  const alertCount = alerts;
+  const [total, unread, alerts, inAppCount, emailCount] = await Promise.all([
+    prisma.notification.count({ where: scope }),
+    prisma.notification.count({ where: { ...scope, isRead: false } }),
+    prisma.notification.count({ where: { ...scope, type: "alert" } }),
+    prisma.notification.count({ where: { ...scope, type: "in_app" } }),
+    prisma.notification.count({ where: { ...scope, type: "email" } }),
+  ]);
 
   return {
-    total: 120 + total,
-    unread: 5 + unread,
-    alerts: 10 + alerts,
-    inAppCount: 54 + inAppCount,
-    emailCount: 40 + emailCount,
-    alertCount: 10 + alertCount,
+    total,
+    unread,
+    alerts,
+    inAppCount,
+    emailCount,
+    alertCount: alerts,
   };
 };
 
-export const toggleNotificationRead = async (id) => {
+/** Look up a notification the caller owns, or 404. */
+const findOwnNotification = async (id, userId) => {
   const rawId = parseInt(String(id).replace("NTF-", ""), 10);
-  const notif = await prisma.notification.findUnique({ where: { id: rawId } });
+  if (isNaN(rawId)) {
+    const error = new Error("Invalid notification id.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const notif = await prisma.notification.findFirst({
+    where: { id: rawId, ...ownedBy(userId) },
+  });
 
   if (!notif) {
     const error = new Error("Notification not found.");
@@ -119,36 +137,42 @@ export const toggleNotificationRead = async (id) => {
     throw error;
   }
 
+  return notif;
+};
+
+export const toggleNotificationRead = async (id, userId) => {
+  const notif = await findOwnNotification(id, userId);
+
   const updated = await prisma.notification.update({
-    where: { id: rawId },
+    where: { id: notif.id },
     data: { isRead: !notif.isRead },
   });
 
   return { id: `NTF-${updated.id}`, read: updated.isRead };
 };
 
-export const markAllNotificationsAsRead = async () => {
+export const markAllNotificationsAsRead = async (userId) => {
   await prisma.notification.updateMany({
+    where: ownedBy(userId),
     data: { isRead: true },
   });
   return { success: true };
 };
 
-export const deleteNotification = async (id) => {
-  const rawId = parseInt(String(id).replace("NTF-", ""), 10);
-  await prisma.notification.delete({ where: { id: rawId } });
-  return { id, deleted: true };
+export const deleteNotification = async (id, userId) => {
+  const notif = await findOwnNotification(id, userId);
+  await prisma.notification.delete({ where: { id: notif.id } });
+  return { id: `NTF-${notif.id}`, deleted: true };
 };
 
-export const createNotification = async (data) => {
+export const createNotification = async (data, userId) => {
   const { recipient, channel, message } = data;
 
-  const admin = await prisma.user.findFirst();
   const formattedType = channel === "in-app" ? "in_app" : channel || "in_app";
 
   const newNotif = await prisma.notification.create({
     data: {
-      userId: admin ? admin.id : 1,
+      userId: Number(userId),
       type: formattedType,
       message,
       recipientLabel: recipient,
@@ -167,18 +191,20 @@ export const createNotification = async (data) => {
   };
 };
 
-export const getNotificationPreferences = async () => {
-  const admin = await prisma.user.findFirst();
-  if (!admin) {
-    return { emailEnabled: true, inAppEnabled: true, remindersEnabled: true, summaryWeeklyEnabled: true };
-  }
+const DEFAULT_PREFERENCES = {
+  emailEnabled: true,
+  inAppEnabled: true,
+  remindersEnabled: true,
+  summaryWeeklyEnabled: true,
+};
 
+export const getNotificationPreferences = async (userId) => {
   const prefs = await prisma.notificationPreference.findUnique({
-    where: { userId: admin.id },
+    where: { userId: Number(userId) },
   });
 
   if (!prefs) {
-    return { emailEnabled: true, inAppEnabled: true, remindersEnabled: true, summaryWeeklyEnabled: true };
+    return { ...DEFAULT_PREFERENCES };
   }
 
   return {
@@ -189,14 +215,9 @@ export const getNotificationPreferences = async () => {
   };
 };
 
-export const updateNotificationPreferences = async (data) => {
-  const admin = await prisma.user.findFirst();
-  if (!admin) {
-    return data;
-  }
-
+export const updateNotificationPreferences = async (data, userId) => {
   const updated = await prisma.notificationPreference.upsert({
-    where: { userId: admin.id },
+    where: { userId: Number(userId) },
     update: {
       emailEnabled: data.emailEnabled,
       inAppEnabled: data.inAppEnabled,
@@ -204,7 +225,7 @@ export const updateNotificationPreferences = async (data) => {
       weeklySummaryEnabled: data.summaryWeeklyEnabled,
     },
     create: {
-      userId: admin.id,
+      userId: Number(userId),
       emailEnabled: data.emailEnabled ?? true,
       inAppEnabled: data.inAppEnabled ?? true,
       remindersEnabled: data.remindersEnabled ?? true,

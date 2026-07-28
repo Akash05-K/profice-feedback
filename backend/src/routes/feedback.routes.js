@@ -7,15 +7,10 @@ const router = Router();
 
 router.use(authenticate);
 
-// Read access: managers, ACE leads, insight viewers, and trainers (own feedback).
-const canRead = requireCapability(
-  CAPABILITIES.MANAGE_FEEDBACK,
-  CAPABILITIES.MANAGE_COURSE_BATCH,
-  CAPABILITIES.VIEW_INSIGHTS,
-  CAPABILITIES.VIEW_OWN_FEEDBACK
-);
-// Mutations: only feedback/course-batch managers.
-const canManage = requireCapability(CAPABILITIES.MANAGE_FEEDBACK, CAPABILITIES.MANAGE_COURSE_BATCH);
+// Read access: anyone who can view the repository, plus trainers (own feedback).
+const canRead = requireCapability(CAPABILITIES.VIEW_FEEDBACK, CAPABILITIES.VIEW_OWN_FEEDBACK);
+// Mutations: archive / delete / bulk. Management is read-only and excluded.
+const canManage = requireCapability(CAPABILITIES.MANAGE_FEEDBACK);
 
 router.get("/", canRead, feedbackController.getList);
 router.get("/stats", canRead, feedbackController.getStats);

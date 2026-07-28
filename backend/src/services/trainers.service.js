@@ -1,5 +1,12 @@
 import prisma from "../config/db.js";
 import * as aiService from "./ai.service.js";
+import {
+  applyFeedbackScope,
+  applyTrainerScope,
+  intersectTrainerIds,
+  isTrainerInScope,
+  isUnrestricted,
+} from "../utils/scope.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -21,17 +28,7 @@ export const buildRatingTrend = (records) => {
 export const getTrainerFilterOptions = async (queryParams = {}, userScope = null) => {
   const { college, course } = queryParams;
 
-  let where = { status: "active" };
-
-  if (userScope?.isProgramManager) {
-    where.OR = [
-      { trainerId: { in: userScope.trainerIds } },
-      { trainer: { program: userScope.program } },
-    ];
-  } else if (userScope?.isTrainer) {
-    const scopeTrainerId = userScope.trainerId;
-    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
-  }
+  const where = applyFeedbackScope({ status: "active" }, userScope);
 
   const records = await prisma.feedbackRecord.findMany({
     where,
@@ -46,9 +43,11 @@ export const getTrainerFilterOptions = async (queryParams = {}, userScope = null
   const coursesSet = new Set();
   const trainersMap = new Map();
 
+  // Seed the picker with every in-scope trainer so a manager still sees their
+  // full roster before any feedback has been uploaded.
   if (userScope?.isProgramManager) {
     const dbTrainers = await prisma.trainer.findMany({
-      where: { program: userScope.program },
+      where: applyTrainerScope({}, userScope),
       select: { id: true, name: true },
     });
     dbTrainers.forEach((t) => trainersMap.set(String(t.id), t.name));
@@ -82,12 +81,7 @@ export const getTrainerFilterOptions = async (queryParams = {}, userScope = null
 };
 
 export const getTrainersList = async (collegeName, courseTitle, userScope = null) => {
-  let trainerWhere = {};
-  if (userScope?.isProgramManager) {
-    trainerWhere.program = userScope.program;
-  } else if (userScope?.isTrainer) {
-    trainerWhere.id = userScope.trainerId ? (Array.isArray(userScope.trainerId) ? { in: userScope.trainerId } : userScope.trainerId) : -1;
-  }
+  const trainerWhere = applyTrainerScope({}, userScope);
 
   if (collegeName && collegeName !== "All Colleges") {
     trainerWhere.college = { name: collegeName };
@@ -121,20 +115,13 @@ export const getTrainersList = async (collegeName, courseTitle, userScope = null
 
 export const getTrainerMetrics = async (trainerId, queryParams = {}, userScope = null) => {
   const { college, course } = queryParams;
-  const where = { status: "active" };
+  const where = applyFeedbackScope({ status: "active" }, userScope);
 
   if (college && college !== "All Colleges") {
     where.college = { name: college };
   }
   if (course && course !== "All Courses") {
     where.course = { title: course };
-  }
-
-  if (userScope?.isProgramManager) {
-    where.OR = [
-      { trainerId: { in: userScope.trainerIds } },
-      { trainer: { program: userScope.program } },
-    ];
   }
 
   if (trainerId && trainerId !== "overall") {
@@ -146,18 +133,24 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}, userScope =
     });
 
     if (trainer) {
-      // Security check for Program Manager: ensure trainer belongs to PM's program
-      if (userScope?.isProgramManager && trainer.program !== userScope.program && !userScope.trainerIds.includes(trainer.id)) {
+      // Answer 403 rather than an empty chart when a manager reaches for
+      // another team's trainer by id or name.
+      if (!isTrainerInScope(trainer.id, userScope)) {
         const error = new Error("Access denied. Trainer belongs to another Program Manager.");
         error.statusCode = 403;
         throw error;
       }
 
+      // The same trainer name can exist at more than one college; roll those
+      // rows up, but never outside the caller's scope.
       const allMatchingTrainers = await prisma.trainer.findMany({
         where: { name: { equals: trainer.name } },
         select: { id: true },
       });
-      where.trainerId = { in: allMatchingTrainers.map((t) => t.id) };
+      const matchingIds = allMatchingTrainers.map((t) => t.id);
+      where.trainerId = {
+        in: isUnrestricted(userScope) ? matchingIds : intersectTrainerIds(matchingIds, userScope),
+      };
     }
   }
 

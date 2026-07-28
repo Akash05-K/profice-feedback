@@ -1,6 +1,7 @@
 import prisma from "../config/db.js";
 import { getPagination, formatPaginatedResponse } from "../utils/pagination.js";
 import { generateActionCode } from "../utils/codeGenerator.js";
+import { applyActionScope as scopeActions, applyTrainerScope } from "../utils/scope.js";
 
 const buildActionOrderBy = (sortBy) => {
   const [field, direction] = String(sortBy || "").split("-");
@@ -22,22 +23,34 @@ const buildActionOrderBy = (sortBy) => {
   }
 };
 
-const applyActionScope = (where, userScope) => {
-  if (!userScope || userScope.isUnrestricted) return where;
+const applyActionScope = (where, userScope) => scopeActions(where, userScope);
 
-  if (userScope.isProgramManager) {
-    where.assignedTo = {
-      ...where.assignedTo,
-      OR: [
-        { program: userScope.program },
-        { id: { in: userScope.trainerIds } },
-      ],
-    };
-  } else if (userScope.isTrainer) {
-    const scopeTrainerId = userScope.trainerId;
-    where.assignedToTrainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
+/**
+ * Resolve the trainer an action should be assigned to, refusing to fall outside
+ * the caller's scope. Previously an unmatched name silently fell back to an
+ * arbitrary trainer, filing the action against the wrong person.
+ */
+const resolveAssignee = async (assignedTo, userScope) => {
+  const name = String(assignedTo || "").trim();
+  if (!name) {
+    const error = new Error("An assignee is required for this action item.");
+    error.statusCode = 400;
+    throw error;
   }
-  return where;
+
+  const trainer = await prisma.trainer.findFirst({
+    where: applyTrainerScope({ name }, userScope),
+  });
+
+  if (!trainer) {
+    const error = new Error(
+      `"${name}" is not a trainer you can assign work to. Choose a trainer from your own program.`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return trainer;
 };
 
 export const getActions = async (queryParams, userScope = null) => {
@@ -155,27 +168,7 @@ export const getActionById = async (id, userScope = null) => {
 export const createAction = async (data, userScope = null) => {
   const { title, assignedTo, priority, dueDate, status, progress, notes } = data;
 
-  let trainerWhere = {};
-  if (userScope?.isProgramManager) {
-    trainerWhere.program = userScope.program;
-  }
-
-  let trainer = await prisma.trainer.findFirst({
-    where: {
-      name: assignedTo,
-      ...trainerWhere,
-    },
-  });
-
-  if (!trainer) {
-    trainer = await prisma.trainer.findFirst({ where: trainerWhere });
-  }
-
-  if (!trainer) {
-    const error = new Error("No trainer found in your assigned program to assign this action item to.");
-    error.statusCode = 400;
-    throw error;
-  }
+  const trainer = await resolveAssignee(assignedTo, userScope);
 
   let maxCodeNum = 112;
   const lastAction = await prisma.actionItem.findFirst({
@@ -251,16 +244,10 @@ export const updateAction = async (id, data, userScope = null) => {
   }
 
   if (assignedTo !== undefined) {
-    let trainerWhere = {};
-    if (userScope?.isProgramManager) {
-      trainerWhere.program = userScope.program;
-    }
-    const trainer = await prisma.trainer.findFirst({
-      where: { name: assignedTo, ...trainerWhere },
-    });
-    if (trainer) {
-      updateData.assignedToTrainerId = trainer.id;
-    }
+    // Throws 400 when the name is outside scope, instead of silently leaving
+    // the action assigned to whoever held it before.
+    const trainer = await resolveAssignee(assignedTo, userScope);
+    updateData.assignedToTrainerId = trainer.id;
   }
 
   const updated = await prisma.actionItem.update({
