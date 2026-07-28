@@ -142,7 +142,7 @@ function Login() {
               <span className="login-avatar login-avatar--3">+</span>
             </div>
             <div className="login-social__text">
-              <strong>Join with 110+ Users!</strong>
+              <strong>Join with Us!</strong>
               <span>Explore demo logins for each role</span>
             </div>
             <button
