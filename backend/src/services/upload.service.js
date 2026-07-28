@@ -3,6 +3,7 @@ import { parseExcelOrCsv } from "../utils/fileParser.js";
 import { generateFeedbackCode } from "../utils/codeGenerator.js";
 import * as aiService from "./ai.service.js";
 import { env } from "../config/env.js";
+import { applyFeedbackScope, isUnrestricted } from "../utils/scope.js";
 
 export const processUploadedFile = async (file, user, userScope = null) => {
   if (!file || !file.buffer) {
@@ -22,6 +23,16 @@ export const processUploadedFile = async (file, user, userScope = null) => {
   const uploaderId = user ? user.id : (adminUser ? adminUser.id : 1);
   const userProgram = userScope?.program || user?.program || null;
 
+  // A Program Manager with no program assigned has no trainers to file feedback
+  // against — refuse rather than guessing and contaminating another team.
+  if (userScope?.isProgramManager && !userProgram) {
+    const error = new Error(
+      "Your account has no program assigned. Ask an administrator to set your program before uploading feedback."
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
   const uploadSession = await prisma.uploadSession.create({
     data: {
       uploadedBy: uploaderId,
@@ -35,6 +46,13 @@ export const processUploadedFile = async (file, user, userScope = null) => {
   let positive = 0;
   let neutral = 0;
   let negative = 0;
+
+  // Rows naming a trainer or course that doesn't exist in the uploader's own
+  // program create a new record rather than borrowing another program's. That
+  // is the isolation guarantee, but it must not happen silently — these are
+  // reported back so the uploader can spot a wrong-team spreadsheet.
+  const createdTrainers = new Set();
+  const createdCourses = new Set();
 
   const programWhere = userProgram ? { program: userProgram } : {};
 
@@ -149,14 +167,22 @@ export const processUploadedFile = async (file, user, userScope = null) => {
     if (trainerCache[`${collegeId}_${trainerName}`]) {
       trainerId = trainerCache[`${collegeId}_${trainerName}`];
     } else {
+      // Scoped uploaders only ever match trainers inside their own program. The
+      // previous global fallback let an IBM manager's sheet attach feedback to
+      // an Oracle trainer with the same name.
       let foundTrainer = await prisma.trainer.findFirst({
-        where: { name: trainerName, ...(userProgram ? { program: userProgram } : {}) },
-      }) || await prisma.trainer.findFirst({ where: { name: trainerName } });
+        where: userProgram ? { name: trainerName, program: userProgram } : { name: trainerName },
+      });
+
+      if (!foundTrainer && !userProgram) {
+        foundTrainer = await prisma.trainer.findFirst({ where: { name: trainerName } });
+      }
 
       if (!foundTrainer) {
         foundTrainer = await prisma.trainer.create({
           data: { name: trainerName, collegeId, program: userProgram, subjectSpecialties: JSON.stringify(["General Instruction"]) },
         });
+        createdTrainers.add(trainerName);
       }
       trainerCache[`${collegeId}_${trainerName}`] = foundTrainer.id;
       trainerCache[trainerName] = foundTrainer.id;
@@ -169,14 +195,22 @@ export const processUploadedFile = async (file, user, userScope = null) => {
     if (courseCache[`${collegeId}_${courseTitle}`]) {
       courseId = courseCache[`${collegeId}_${courseTitle}`];
     } else {
+      // Same rule as trainers: never reuse another program's course row.
       let foundCourse = await prisma.course.findFirst({
-        where: { title: courseTitle, collegeId, ...(userProgram ? { program: userProgram } : {}) },
-      }) || await prisma.course.findFirst({ where: { title: courseTitle, collegeId } });
+        where: userProgram
+          ? { title: courseTitle, collegeId, program: userProgram }
+          : { title: courseTitle, collegeId },
+      });
+
+      if (!foundCourse && !userProgram) {
+        foundCourse = await prisma.course.findFirst({ where: { title: courseTitle, collegeId } });
+      }
 
       if (!foundCourse) {
         foundCourse = await prisma.course.create({
           data: { title: courseTitle, category: "General", durationWeeks: 12, collegeId, program: userProgram },
         });
+        createdCourses.add(courseTitle);
       }
       courseCache[`${collegeId}_${courseTitle}`] = foundCourse.id;
       courseCache[courseTitle] = foundCourse.id;
@@ -245,6 +279,8 @@ export const processUploadedFile = async (file, user, userScope = null) => {
     uploadSessionId: updatedSession.id,
     analyzedCount: total.toLocaleString(),
     sentimentData,
+    newTrainers: [...createdTrainers],
+    newCourses: [...createdCourses],
     actions:
       negative > 0
         ? [
@@ -274,16 +310,11 @@ export const getUploadSessions = async (userScope = null) => {
     });
   }
 
-  let sessionWhere = {};
-  if (userScope?.isProgramManager) {
-    sessionWhere = {
-      OR: [
-        { feedbackRecords: { some: { trainer: { program: userScope.program } } } },
-        { feedbackRecords: { some: { course: { program: userScope.program } } } },
-        { feedbackRecords: { some: { trainerId: { in: userScope.trainerIds } } } },
-      ],
-    };
-  }
+  // A scoped user only sees sessions that actually contain their own trainers'
+  // feedback — "the manager only [sees] the feedbacks of trainer under him".
+  const sessionWhere = isUnrestricted(userScope)
+    ? {}
+    : { feedbackRecords: { some: applyFeedbackScope({}, userScope) } };
 
   return await prisma.uploadSession.findMany({
     where: sessionWhere,
@@ -292,7 +323,14 @@ export const getUploadSessions = async (userScope = null) => {
   });
 };
 
-export const getUploadSessionAnalysis = async (sessionId, userScope = null) => {
+/**
+ * Load an upload session the caller is allowed to touch, or throw 404.
+ *
+ * Scoped callers must own at least one feedback record in the session. Both the
+ * analysis and delete paths previously looked the session up by raw id, which
+ * let one manager read another's filename and delete their session outright.
+ */
+const findSessionInScope = async (sessionId, userScope) => {
   const sessIdNum = parseInt(sessionId, 10);
   if (isNaN(sessIdNum)) {
     const error = new Error("Invalid session ID.");
@@ -300,8 +338,10 @@ export const getUploadSessionAnalysis = async (sessionId, userScope = null) => {
     throw error;
   }
 
-  const session = await prisma.uploadSession.findUnique({
-    where: { id: sessIdNum },
+  const session = await prisma.uploadSession.findFirst({
+    where: isUnrestricted(userScope)
+      ? { id: sessIdNum }
+      : { id: sessIdNum, feedbackRecords: { some: applyFeedbackScope({}, userScope) } },
   });
 
   if (!session) {
@@ -310,18 +350,14 @@ export const getUploadSessionAnalysis = async (sessionId, userScope = null) => {
     throw error;
   }
 
-  let recordWhere = { uploadSessionId: sessIdNum };
-  if (userScope?.isProgramManager) {
-    recordWhere.OR = [
-      { trainerId: { in: userScope.trainerIds } },
-      { courseId: { in: userScope.courseIds } },
-      { trainer: { program: userScope.program } },
-      { course: { program: userScope.program } },
-    ];
-  }
+  return session;
+};
+
+export const getUploadSessionAnalysis = async (sessionId, userScope = null) => {
+  const session = await findSessionInScope(sessionId, userScope);
 
   const records = await prisma.feedbackRecord.findMany({
-    where: recordWhere,
+    where: applyFeedbackScope({ uploadSessionId: session.id }, userScope),
   });
 
   const total = records.length;
@@ -408,42 +444,24 @@ export const getUploadSessionAnalysis = async (sessionId, userScope = null) => {
 };
 
 export const deleteUploadSession = async (sessionId, userScope = null) => {
-  const sessIdNum = parseInt(sessionId, 10);
-  if (isNaN(sessIdNum)) {
-    const error = new Error("Invalid session ID.");
-    error.statusCode = 400;
-    throw error;
-  }
+  const session = await findSessionInScope(sessionId, userScope);
 
-  const session = await prisma.uploadSession.findUnique({
-    where: { id: sessIdNum },
-  });
-
-  if (!session) {
-    const error = new Error("Upload session not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  let deleteWhere = { uploadSessionId: sessIdNum };
-  if (userScope?.isProgramManager) {
-    deleteWhere.OR = [
-      { trainerId: { in: userScope.trainerIds } },
-      { courseId: { in: userScope.courseIds } },
-      { trainer: { program: userScope.program } },
-      { course: { program: userScope.program } },
-    ];
-  }
   const deleted = await prisma.feedbackRecord.deleteMany({
-    where: deleteWhere,
+    where: applyFeedbackScope({ uploadSessionId: session.id }, userScope),
   });
 
-  await prisma.uploadSession.delete({
-    where: { id: sessIdNum },
-  }).catch(() => {});
+  // Only drop the session row once nothing out of scope is left inside it, so a
+  // shared upload isn't erased from under another program.
+  const remaining = await prisma.feedbackRecord.count({
+    where: { uploadSessionId: session.id },
+  });
+
+  if (remaining === 0) {
+    await prisma.uploadSession.delete({ where: { id: session.id } }).catch(() => {});
+  }
 
   return {
-    sessionId: sessIdNum,
+    sessionId: session.id,
     filename: session.filename,
     deletedRecords: deleted.count,
   };

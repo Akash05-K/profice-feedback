@@ -7,14 +7,10 @@ const router = Router();
 
 router.use(authenticate);
 
-// Action Tracker is an org-wide module — trainers (own-scope only) are excluded
-// because the action list/detail is not trainer-scoped.
-const canRead = requireCapability(
-  CAPABILITIES.MANAGE_FEEDBACK,
-  CAPABILITIES.MANAGE_COURSE_BATCH,
-  CAPABILITIES.VIEW_INSIGHTS
-);
-const canManage = requireCapability(CAPABILITIES.MANAGE_FEEDBACK, CAPABILITIES.MANAGE_COURSE_BATCH);
+// Action Tracker. Trainers are excluded (the list is not trainer-scoped), and
+// Management holds neither capability — "they dont use action tracker".
+const canRead = requireCapability(CAPABILITIES.VIEW_ACTIONS);
+const canManage = requireCapability(CAPABILITIES.MANAGE_ACTIONS);
 
 router.get("/", canRead, actionsController.getList);
 router.get("/stats", canRead, actionsController.getStats);

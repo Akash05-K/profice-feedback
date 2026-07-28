@@ -12,6 +12,7 @@ import ActionTracker from "../pages/ActionTracker/ActionTracker";
 import Notifications from "../pages/Notifications/Notifications";
 import AIRecommendations from "../pages/AIRecommendations/AIRecommendations";
 import Integrations from "../pages/Integrations/Integrations";
+import Users from "../pages/Users/Users";
 import ProtectedRoute from "../components/auth/ProtectedRoute";
 import { ROUTE_CAPS, firstAccessiblePath } from "../lib/permissions";
 import { useAuth } from "../context/AuthContext";
@@ -41,6 +42,7 @@ function AppRoutes() {
       <Route path="/batch-insights" element={guard("/batch-insights", <BatchInsights />)} />
       <Route path="/reports" element={guard("/reports", <Reports />)} />
       <Route path="/action-tracker" element={guard("/action-tracker", <ActionTracker />)} />
+      <Route path="/users" element={guard("/users", <Users />)} />
       <Route path="/integrations" element={guard("/integrations", <Integrations />)} />
       <Route path="/notifications" element={guard("/notifications", <Notifications />)} />
 

@@ -1,20 +1,8 @@
 import prisma from "../config/db.js";
+import { applyFeedbackScope, applyBatchScope } from "../utils/scope.js";
 
-const buildFeedbackWhere = (userScope, extraWhere = {}) => {
-  const where = { status: "active", ...extraWhere };
-  if (!userScope || userScope.isUnrestricted) return where;
-  if (userScope.isProgramManager) {
-    where.OR = [
-      { trainerId: { in: userScope.trainerIds } },
-      { courseId: { in: userScope.courseIds } },
-      { trainer: { program: userScope.program } },
-      { course: { program: userScope.program } },
-    ];
-  } else if (userScope.isTrainer) {
-    where.trainerId = userScope.trainerId ? (Array.isArray(userScope.trainerId) ? { in: userScope.trainerId } : userScope.trainerId) : -1;
-  }
-  return where;
-};
+const buildFeedbackWhere = (userScope, extraWhere = {}) =>
+  applyFeedbackScope({ status: "active", ...extraWhere }, userScope);
 
 export const getDashboardStats = async (userScope = null) => {
   const baseWhere = buildFeedbackWhere(userScope);
@@ -47,15 +35,7 @@ export const getDashboardStats = async (userScope = null) => {
   const positivePercent = Math.round((positiveCount / total) * 100);
 
   // Response rate based on total students in active batches scoped to user
-  const batchWhere = {};
-  if (userScope?.isProgramManager) {
-    batchWhere.OR = [
-      { trainerId: { in: userScope.trainerIds } },
-      { courseId: { in: userScope.courseIds } },
-    ];
-  } else if (userScope?.isTrainer) {
-    batchWhere.trainerId = userScope.trainerId ? (Array.isArray(userScope.trainerId) ? { in: userScope.trainerId } : userScope.trainerId) : -1;
-  }
+  const batchWhere = applyBatchScope({}, userScope);
 
   const studentCountAgg = await prisma.batch.aggregate({
     where: batchWhere,

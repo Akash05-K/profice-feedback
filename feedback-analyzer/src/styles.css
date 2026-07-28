@@ -1,63 +1,19 @@
 
 /* =========================================================================
-   1. FONT FACES (local files only — see src/assets/fonts)
+   1. FONT FACES
+   Self-hosted via @fontsource (latin subset, font-display: swap) — no CDN or
+   external request at runtime. These previously pointed at src/assets/fonts,
+   which was never committed, so every weight 404'd and the app silently fell
+   back to the system font stack.
    ========================================================================= */
-@font-face {
-  font-family: "Inter";
-  src: url("./assets/fonts/inter/inter-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Inter";
-  src: url("./assets/fonts/inter/inter-latin-500-normal.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Inter";
-  src: url("./assets/fonts/inter/inter-latin-600-normal.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Inter";
-  src: url("./assets/fonts/inter/inter-latin-700-normal.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Poppins";
-  src: url("./assets/fonts/poppins/poppins-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Poppins";
-  src: url("./assets/fonts/poppins/poppins-latin-500-normal.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Poppins";
-  src: url("./assets/fonts/poppins/poppins-latin-600-normal.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Poppins";
-  src: url("./assets/fonts/poppins/poppins-latin-700-normal.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/inter/latin-700.css";
+@import "@fontsource/poppins/latin-400.css";
+@import "@fontsource/poppins/latin-500.css";
+@import "@fontsource/poppins/latin-600.css";
+@import "@fontsource/poppins/latin-700.css";
 
 /* =========================================================================
    2. VARIABLES
@@ -3718,3 +3674,75 @@ h6 {
   gap: 12px;
 }
 
+
+/* =========================================================================
+   User Management + shared modal form layout
+   `.action-form` is used by the Action Tracker modal and the User Management
+   modals. It had no rule until now, so those forms rendered as a flat stack.
+   ========================================================================= */
+
+.action-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+
+.action-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.action-form__field--full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .action-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.form-hint {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--color-text-muted, #64748b);
+}
+
+.form-error {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-danger, #ef4444);
+}
+
+.badge-pill--purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.badge-pill--grey {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* Two-line identity cell: name over email, so the table stays scannable
+   without a second column. */
+.user-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-cell__name {
+  font-weight: 600;
+  color: var(--color-text, #0f172a);
+}
+
+.user-cell__email {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -6,6 +6,8 @@ export const navItems = [
   { id: "course-insights", label: "Course Insights", path: "/course-insights", icon: "bi-mortarboard-fill" },
   { id: "action-tracker", label: "Action Tracker", path: "/action-tracker", icon: "bi-list-check" },
   { id: "reports", label: "Reports Generator", path: "/reports", icon: "bi-file-earmark-text-fill" },
+  // Sidebar filters by capability, so this only appears for Super Admin and ACE Lead.
+  { id: "users", label: "User Management", path: "/users", icon: "bi-people-fill" },
 ];
 
 export const statCardValues = {

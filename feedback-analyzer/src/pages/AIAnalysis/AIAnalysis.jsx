@@ -4,6 +4,8 @@ import { toast } from "react-toastify";
 import api from "../../services/api";
 import AppLayout from "../../components/layout/AppLayout";
 import SelectDropdown from "../../components/common/SelectDropdown";
+import { useAuth } from "../../context/AuthContext";
+import { CAP } from "../../lib/permissions";
 
 
 import SentimentDonutChart from "../../components/charts/SentimentDonutChart";
@@ -31,6 +33,13 @@ const capabilities = [
 function AIAnalysis() {
 
 
+  const { hasCapability } = useAuth();
+  // Management (CEO/MD) reads analyses but never uploads. The backend enforces
+  // the same rule on POST /upload/analyze.
+  const canUpload = hasCapability(CAP.UPLOAD_FEEDBACK);
+  // Management has no Action Tracker at all, so don't offer a link into it.
+  const canViewActions = hasCapability(CAP.VIEW_ACTIONS);
+
   const location = useLocation();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -46,6 +55,9 @@ function AIAnalysis() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
 
   const loadSessions = async (autoSelectId = null) => {
+    // /upload/sessions requires UPLOAD_FEEDBACK — skip rather than fire a call
+    // that is guaranteed to 403 for read-only roles.
+    if (!canUpload) return;
     try {
       const res = await api.getUploadSessions();
       if (res.data && res.data.length > 0) {
@@ -92,6 +104,9 @@ function AIAnalysis() {
   }, [selectedSessionId]);
 
   const handleUploadClick = () => {
+    // The input is not rendered for read-only roles, and a deep link from the
+    // dashboard's quick actions can still reach this.
+    if (!fileInputRef.current) return;
     fileInputRef.current.click();
   };
 
@@ -116,11 +131,21 @@ function AIAnalysis() {
       const data = res.data;
 
       toast.update(toastId, {
-        render: `Successfully saved ${data.analyzedCount} feedback records to MySQL!`,
+        render: `Saved ${data.analyzedCount} feedback records.`,
         type: "success",
         isLoading: false,
         autoClose: 4000,
       });
+
+      // Names not already in this program were added rather than matched
+      // against another program's records — worth flagging in case the wrong
+      // spreadsheet was picked.
+      const added = [...(data.newTrainers || []), ...(data.newCourses || [])];
+      if (added.length > 0) {
+        toast.info(`Added to your program: ${added.join(", ")}. Check this is the right file.`, {
+          autoClose: 8000,
+        });
+      }
 
       if (data.uploadSessionId) {
         await loadSessions(data.uploadSessionId);
@@ -163,34 +188,48 @@ function AIAnalysis() {
               borderColor: "#E5E7EB",
             }}
           >
-            <button
-              type="button"
-              className="btn btn-primary d-flex align-items-center justify-content-center gap-2 w-100 rounded-3 py-1.5"
-              style={{
-                fontSize: "0.85rem",
-                fontWeight: "600",
-                backgroundColor: "#2563EB",
-                borderColor: "#2563EB",
-              }}
-              onClick={handleUploadClick}
-              disabled={isUploading}
-            >
-              <i className="bi bi-cloud-upload-fill" style={{ fontSize: "0.95rem" }} />
-              <span>{isUploading ? "Uploading..." : "Choose File"}</span>
-            </button>
-            <input
-              type="file"
-              accept=".xlsx, .xls, .csv"
-              ref={fileInputRef}
-              style={{ display: "none" }}
-              onChange={handleExcelUpload}
-            />
-            <span
-              className="text-muted mt-1"
-              style={{ fontSize: "0.72rem", fontWeight: "400" }}
-            >
-              Supports: .xlsx, .xls
-            </span>
+            {canUpload ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary d-flex align-items-center justify-content-center gap-2 w-100 rounded-3 py-1.5"
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: "600",
+                    backgroundColor: "#2563EB",
+                    borderColor: "#2563EB",
+                  }}
+                  onClick={handleUploadClick}
+                  disabled={isUploading}
+                >
+                  <i className="bi bi-cloud-upload-fill" style={{ fontSize: "0.95rem" }} />
+                  <span>{isUploading ? "Uploading..." : "Choose File"}</span>
+                </button>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  ref={fileInputRef}
+                  style={{ display: "none" }}
+                  onChange={handleExcelUpload}
+                />
+                <span
+                  className="text-muted mt-1"
+                  style={{ fontSize: "0.72rem", fontWeight: "400" }}
+                >
+                  Supports: .xlsx, .xls
+                </span>
+              </>
+            ) : (
+              <>
+                <i className="bi bi-eye" style={{ fontSize: "1.1rem", color: "#64748B" }} />
+                <span className="fw-semibold mt-1" style={{ fontSize: "0.82rem", color: "#334155" }}>
+                  View only
+                </span>
+                <span className="text-muted" style={{ fontSize: "0.72rem" }}>
+                  Your role can read analyses but not upload feedback.
+                </span>
+              </>
+            )}
           </div>
 
           {/* Right Side: Already Uploaded Files Section */}
@@ -242,9 +281,13 @@ function AIAnalysis() {
           title="AI Recommended Actions"
           icon="bi-lightbulb-fill"
           actions={actions}
-          ctaLabel="View Action Tracker"
-          ctaIcon="bi-arrow-right"
-          onCtaClick={() => navigate("/action-tracker")}
+          {...(canViewActions
+            ? {
+                ctaLabel: "View Action Tracker",
+                ctaIcon: "bi-arrow-right",
+                onCtaClick: () => navigate("/action-tracker"),
+              }
+            : {})}
         />
       </div>
 

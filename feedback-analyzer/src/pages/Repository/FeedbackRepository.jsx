@@ -5,6 +5,8 @@ import StatCard from "../../components/cards/StatCard";
 import DataTable from "../../components/tables/DataTable";
 import Pagination from "../../components/widgets/Pagination";
 import api from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
+import { CAP } from "../../lib/permissions";
 
 const sentimentOptions = [
   { value: "positive", label: "Positive" },
@@ -45,6 +47,17 @@ function StarRating({ rating }) {
 }
 
 function FeedbackRepository() {
+  const { hasCapability } = useAuth();
+  // Read-only roles (Management) still browse and export, but never archive,
+  // delete or bulk-edit. The backend rejects those calls regardless.
+  const canManage = hasCapability(CAP.MANAGE_FEEDBACK);
+  // Upload History reads /upload/sessions, which requires UPLOAD_FEEDBACK.
+  // Hiding the tab keeps a read-only role from hitting a guaranteed 403.
+  const canSeeUploads = hasCapability(CAP.UPLOAD_FEEDBACK);
+  const visibleStatusTabs = canSeeUploads
+    ? statusTabs
+    : statusTabs.filter((tab) => tab.value !== "uploads");
+
   const [pageRows, setPageRows] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -282,16 +295,17 @@ function FeedbackRepository() {
   }, []);
 
   // Prefetch once on mount so the "Upload History" tab badge is accurate,
-  // then refresh whenever that tab is active.
+  // then refresh whenever that tab is active. Skipped for roles without
+  // upload access, whose tab is hidden anyway.
   useEffect(() => {
-    loadUploadSessions();
-  }, [loadUploadSessions]);
+    if (canSeeUploads) loadUploadSessions();
+  }, [loadUploadSessions, canSeeUploads]);
 
   useEffect(() => {
-    if (statusView === "uploads") {
+    if (canSeeUploads && statusView === "uploads") {
       loadUploadSessions();
     }
-  }, [statusView, loadUploadSessions]);
+  }, [statusView, loadUploadSessions, canSeeUploads]);
 
   async function handleDeleteSession(sessionId, filename) {
     if (!window.confirm(`Delete "${filename}" and all its ${uploadSessions.find(s => s.id === sessionId)?.totalRows || 0} feedback records? This cannot be undone.`)) {
@@ -399,34 +413,39 @@ function FeedbackRepository() {
             >
               <i className="bi bi-eye" />
             </button>
-            <button
-              type="button"
-              className="table-icon-btn"
-              aria-label={row.status === "archived" ? "Restore feedback" : "Archive feedback"}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleArchive(row.id);
-              }}
-            >
-              <i className={`bi ${row.status === "archived" ? "bi-arrow-counterclockwise" : "bi-archive"}`} />
-            </button>
-            <button
-              type="button"
-              className="table-icon-btn"
-              aria-label="Delete feedback"
-              style={{ color: "var(--color-danger)" }}
-              onClick={(event) => {
-                event.stopPropagation();
-                deleteRow(row.id);
-              }}
-            >
-              <i className="bi bi-trash" />
-            </button>
+            {canManage && (
+              <>
+                <button
+                  type="button"
+                  className="table-icon-btn"
+                  aria-label={row.status === "archived" ? "Restore feedback" : "Archive feedback"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleArchive(row.id);
+                  }}
+                >
+                  <i className={`bi ${row.status === "archived" ? "bi-arrow-counterclockwise" : "bi-archive"}`} />
+                </button>
+                <button
+                  type="button"
+                  className="table-icon-btn"
+                  aria-label="Delete feedback"
+                  style={{ color: "var(--color-danger)" }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    deleteRow(row.id);
+                  }}
+                >
+                  <i className="bi bi-trash" />
+                </button>
+              </>
+            )}
           </div>
         ),
       },
     ],
-    [collegeOptions, courseOptions, trainerOptions]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [collegeOptions, courseOptions, trainerOptions, canManage]
   );
 
   const uploadColumns = useMemo(
@@ -487,24 +506,28 @@ function FeedbackRepository() {
         label: "Actions",
         sortable: false,
         headerClassName: "data-table__actions-col",
-        render: (row) => (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 rounded-pill px-3"
-            style={{ fontSize: "0.75rem", fontWeight: 600 }}
-            onClick={() => handleDeleteSession(row.id, row.filename)}
-            disabled={deletingSessionId === row.id}
-          >
-            {deletingSessionId === row.id ? (
-              <><div className="spinner-border spinner-border-sm" role="status" /> Deleting...</>
-            ) : (
-              <><i className="bi bi-trash" /> Delete</>
-            )}
-          </button>
-        ),
+        render: (row) =>
+          canManage ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 rounded-pill px-3"
+              style={{ fontSize: "0.75rem", fontWeight: 600 }}
+              onClick={() => handleDeleteSession(row.id, row.filename)}
+              disabled={deletingSessionId === row.id}
+            >
+              {deletingSessionId === row.id ? (
+                <><div className="spinner-border spinner-border-sm" role="status" /> Deleting...</>
+              ) : (
+                <><i className="bi bi-trash" /> Delete</>
+              )}
+            </button>
+          ) : (
+            <span className="text-muted">—</span>
+          ),
       },
     ],
-    [deletingSessionId]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deletingSessionId, canManage]
   );
 
   return (
@@ -517,7 +540,7 @@ function FeedbackRepository() {
 
       <div className="repository-tabs">
         <div className="repository-tabs__list">
-          {statusTabs.map((tab) => (
+          {visibleStatusTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
@@ -537,15 +560,17 @@ function FeedbackRepository() {
             <span className="text-secondary font-weight-bold me-2" style={{ fontSize: "0.8rem" }}>
               Selected: <strong>{selectedIds.length}</strong>
             </span>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 rounded-pill px-3"
-              style={{ fontSize: "0.75rem", fontWeight: "600" }}
-              onClick={archiveSelected}
-            >
-              <i className="bi bi-archive" />
-              <span>Archive</span>
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 rounded-pill px-3"
+                style={{ fontSize: "0.75rem", fontWeight: "600" }}
+                onClick={archiveSelected}
+              >
+                <i className="bi bi-archive" />
+                <span>Archive</span>
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-sm btn-outline-success d-flex align-items-center gap-2 rounded-pill px-3"
@@ -555,15 +580,17 @@ function FeedbackRepository() {
               <i className="bi bi-download" />
               <span>Export Excel</span>
             </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-danger d-flex align-items-center gap-2 rounded-pill px-3"
-              style={{ fontSize: "0.75rem", fontWeight: "600" }}
-              onClick={deleteSelected}
-            >
-              <i className="bi bi-trash" />
-              <span>Delete</span>
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-danger d-flex align-items-center gap-2 rounded-pill px-3"
+                style={{ fontSize: "0.75rem", fontWeight: "600" }}
+                onClick={deleteSelected}
+              >
+                <i className="bi bi-trash" />
+                <span>Delete</span>
+              </button>
+            )}
           </div>
         ) : null}
       </div>

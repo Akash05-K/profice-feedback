@@ -1,29 +1,10 @@
 import prisma from "../config/db.js";
 import { getPagination, formatPaginatedResponse } from "../utils/pagination.js";
+import { applyFeedbackScope } from "../utils/scope.js";
 import * as XLSX from "xlsx";
 import { stringify } from "csv-stringify/sync";
 
-const applyScopeToWhere = (where, userScope) => {
-  if (!userScope || userScope.isUnrestricted) return where;
-  
-  if (userScope.isProgramManager) {
-    where.AND = [
-      ...(where.AND || []),
-      {
-        OR: [
-          { trainerId: { in: userScope.trainerIds } },
-          { courseId: { in: userScope.courseIds } },
-          { trainer: { program: userScope.program } },
-          { course: { program: userScope.program } },
-        ],
-      },
-    ];
-  } else if (userScope.isTrainer) {
-    const scopeTrainerId = userScope.trainerId;
-    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
-  }
-  return where;
-};
+const applyScopeToWhere = (where, userScope) => applyFeedbackScope(where, userScope);
 
 export const getFeedbackRecords = async (queryParams, userScope = null) => {
   const {
