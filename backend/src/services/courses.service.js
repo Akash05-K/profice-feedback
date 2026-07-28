@@ -2,19 +2,43 @@ import prisma from "../config/db.js";
 import * as aiService from "./ai.service.js";
 import { buildRatingTrend } from "./trainers.service.js";
 
-export const getCourseFilterOptions = async (queryParams = {}) => {
+export const getCourseFilterOptions = async (queryParams = {}, userScope = null) => {
   const { college } = queryParams;
 
+  let where = { status: "active" };
+  if (userScope?.isProgramManager) {
+    where.OR = [
+      { courseId: { in: userScope.courseIds } },
+      { course: { program: userScope.program } },
+    ];
+  }
+
   const records = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
+    where,
     select: {
       college: { select: { name: true } },
-      course: { select: { id: true, title: true, category: true, durationWeeks: true } },
+      course: { select: { id: true, title: true, category: true, durationWeeks: true, program: true } },
     },
   });
 
   const collegesSet = new Set();
   const coursesMap = new Map();
+
+  if (userScope?.isProgramManager) {
+    const dbCourses = await prisma.course.findMany({
+      where: { program: userScope.program },
+      select: { id: true, title: true, category: true, durationWeeks: true, college: { select: { name: true } } },
+    });
+    dbCourses.forEach((c) => {
+      coursesMap.set(String(c.id), {
+        id: String(c.id),
+        name: c.title,
+        category: c.category || "General",
+        duration: `${c.durationWeeks || 12} weeks`,
+        college: c.college ? c.college.name : "All Colleges",
+      });
+    });
+  }
 
   records.forEach((r) => {
     if (r.college?.name) collegesSet.add(r.college.name);
@@ -42,44 +66,47 @@ export const getCourseFilterOptions = async (queryParams = {}) => {
   };
 };
 
-export const getCoursesList = async (collegeName) => {
-  const where = { status: "active" };
-  if (collegeName && collegeName !== "All Colleges") {
-    where.college = { name: collegeName };
+export const getCoursesList = async (collegeName, userScope = null) => {
+  let courseWhere = {};
+  if (userScope?.isProgramManager) {
+    courseWhere.program = userScope.program;
+  } else if (userScope?.isTrainer && userScope.courseIds?.length > 0) {
+    courseWhere.id = { in: userScope.courseIds };
   }
 
-  const records = await prisma.feedbackRecord.findMany({
-    where,
-    select: {
-      course: { select: { id: true, title: true, category: true, durationWeeks: true, college: { select: { name: true } } } },
-    },
+  if (collegeName && collegeName !== "All Colleges") {
+    courseWhere.college = { name: collegeName };
+  }
+
+  const dbCourses = await prisma.course.findMany({
+    where: courseWhere,
+    include: { college: true },
   });
 
-  const coursesMap = new Map();
-  records.forEach((r) => {
-    if (r.course?.id) {
-      const c = r.course;
-      coursesMap.set(String(c.id), {
-        id: String(c.id),
-        name: c.title,
-        category: c.category || "General",
-        duration: `${c.durationWeeks || 12} weeks`,
-        college: c.college ? c.college.name : "All Colleges",
-      });
-    }
-  });
-
-  const list = Array.from(coursesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const list = dbCourses.map((c) => ({
+    id: String(c.id),
+    name: c.title,
+    category: c.category || "General",
+    duration: `${c.durationWeeks || 12} weeks`,
+    college: c.college ? c.college.name : "All Colleges",
+  })).sort((a, b) => a.name.localeCompare(b.name));
 
   return [{ id: "overall", name: "Overall Classification", category: "All Categories", duration: "All Courses", college: "All Colleges" }, ...list];
 };
 
-export const getCourseMetrics = async (courseId, queryParams = {}) => {
+export const getCourseMetrics = async (courseId, queryParams = {}, userScope = null) => {
   const { college } = queryParams;
   const where = { status: "active" };
 
   if (college && college !== "All Colleges") {
     where.college = { name: college };
+  }
+
+  if (userScope?.isProgramManager) {
+    where.OR = [
+      { courseId: { in: userScope.courseIds } },
+      { course: { program: userScope.program } },
+    ];
   }
 
   if (courseId && courseId !== "overall") {
@@ -91,6 +118,11 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
     });
 
     if (course) {
+      if (userScope?.isProgramManager && course.program !== userScope.program && !userScope.courseIds.includes(course.id)) {
+        const error = new Error("Access denied. Course belongs to another Program Manager.");
+        error.statusCode = 403;
+        throw error;
+      }
       where.courseId = course.id;
     }
   }
@@ -118,7 +150,6 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
   const satisfactionRate = Math.round((records.filter((r) => r.rating >= 3).length / totalReviews) * 100);
   const positiveRate = Math.round((records.filter((r) => r.sentiment === "positive").length / totalReviews) * 100);
 
-  // Extract negative keywords for improvement suggestions
   const negMap = {};
   records.forEach((r) => {
     if (r.sentiment === "negative") {
@@ -149,7 +180,6 @@ export const getCourseMetrics = async (courseId, queryParams = {}) => {
     satisfactionRate,
     positiveRate,
     enrolledStudents: totalReviews,
-    // Real month-by-month average-rating trend (single, honest series).
     monthlyTrend: buildRatingTrend(records),
     improvementSuggestions,
   };

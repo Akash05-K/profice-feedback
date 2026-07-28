@@ -8,13 +8,13 @@ import "./login.css";
 const DEMO_ACCOUNTS = [
   { role: "Super Admin", email: "admin@profice.edu", password: "admin123" },
   { role: "Management", email: "management@profice.edu", password: "manage123" },
-  { role: "Program Manager", email: "pm@profice.edu", password: "pm123" },
+  { role: "IBM Program Manager", email: "ibm_pm@profice.edu", password: "pm123" },
+  { role: "Oracle Program Manager", email: "oracle_pm@profice.edu", password: "pm123" },
   { role: "ACE Lead", email: "acelead@profice.edu", password: "ace123" },
-  { role: "Trainer (Harish)", email: "harish@profice.edu", password: "trainer123" },
-  { role: "Trainer (Akash)", email: "akash@profice.edu", password: "trainer123" },
-  { role: "Trainer (Harsha)", email: "harsha@profice.edu", password: "trainer123" },
-  { role: "Trainer (Theesthan)", email: "theesthan@profice.edu", password: "trainer123" },
-  { role: "Trainer (Lokesh)", email: "lokesh@profice.edu", password: "trainer123" },
+  { role: "Trainer (Harish - IBM)", email: "harish@profice.edu", password: "trainer123" },
+  { role: "Trainer (Akash - IBM)", email: "akash@profice.edu", password: "trainer123" },
+  { role: "Trainer (Anand R - Oracle)", email: "anandr@profice.edu", password: "trainer123" },
+  { role: "Trainer (Divya S - Oracle)", email: "divyas@profice.edu", password: "trainer123" },
 ];
 
 function Login() {

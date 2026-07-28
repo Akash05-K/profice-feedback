@@ -1,10 +1,10 @@
 import * as trainersService from "../services/trainers.service.js";
-import { resolveTrainerScope } from "../services/auth.service.js";
+import { resolveUserScope } from "../services/auth.service.js";
 
 export const getFilterOptions = async (req, res, next) => {
   try {
-    const scopeTrainerId = await resolveTrainerScope(req.user);
-    const data = await trainersService.getTrainerFilterOptions(req.query, scopeTrainerId);
+    const userScope = await resolveUserScope(req.user);
+    const data = await trainersService.getTrainerFilterOptions(req.query, userScope);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);
@@ -13,7 +13,8 @@ export const getFilterOptions = async (req, res, next) => {
 
 export const getList = async (req, res, next) => {
   try {
-    const data = await trainersService.getTrainersList(req.query.college, req.query.course);
+    const userScope = await resolveUserScope(req.user);
+    const data = await trainersService.getTrainersList(req.query.college, req.query.course, userScope);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);
@@ -22,10 +23,14 @@ export const getList = async (req, res, next) => {
 
 export const getMetrics = async (req, res, next) => {
   try {
-    // A trainer can only view their own metrics — force the id to their own.
-    const scopeTrainerId = await resolveTrainerScope(req.user);
-    const targetId = scopeTrainerId ? String(scopeTrainerId) : req.params.id;
-    const data = await trainersService.getTrainerMetrics(targetId, req.query);
+    const userScope = await resolveUserScope(req.user);
+    let targetId = req.params.id;
+
+    if (userScope.isTrainer) {
+      targetId = userScope.trainerId ? String(userScope.trainerId) : req.params.id;
+    }
+
+    const data = await trainersService.getTrainerMetrics(targetId, req.query, userScope);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

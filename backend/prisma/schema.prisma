@@ -13,6 +13,7 @@ model User {
   passwordHash String    @map("password_hash")
   name         String
   role         String    @default("super_admin")
+  program      String?   @map("program")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   notifications           Notification[]
@@ -40,6 +41,7 @@ model Trainer {
   name               String
   email              String?   @unique
   subjectSpecialties String?   @map("subject_specialties")
+  program            String?   @map("program")
   collegeId          Int       @map("college_id")
   createdAt          DateTime  @default(now()) @map("created_at")
 
@@ -49,6 +51,7 @@ model Trainer {
   actionItems     ActionItem[]
 
   @@index([collegeId])
+  @@index([program])
   @@map("trainers")
 }
 
@@ -57,6 +60,7 @@ model Course {
   title         String
   category      String?
   durationWeeks Int?      @map("duration_weeks")
+  program       String?   @map("program")
   collegeId     Int       @map("college_id")
   createdAt     DateTime  @default(now()) @map("created_at")
 
@@ -65,6 +69,7 @@ model Course {
   feedbackRecords FeedbackRecord[]
 
   @@index([collegeId])
+  @@index([program])
   @@map("courses")
 }
 

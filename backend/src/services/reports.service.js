@@ -2,13 +2,36 @@ import prisma from "../config/db.js";
 import { getFeedbackRecords, exportFeedbackRecords } from "./feedback.service.js";
 import { generateFeedbackPdf } from "../utils/pdfGenerator.js";
 
-export const getReportsData = async (queryParams) => {
-  const result = await getFeedbackRecords(queryParams);
+const applyReportsScope = (where, userScope) => {
+  if (!userScope || userScope.isUnrestricted) return where;
+
+  if (userScope.isProgramManager) {
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { trainerId: { in: userScope.trainerIds } },
+          { courseId: { in: userScope.courseIds } },
+          { trainer: { program: userScope.program } },
+          { course: { program: userScope.program } },
+        ],
+      },
+    ];
+  } else if (userScope.isTrainer) {
+    const scopeTrainerId = userScope.trainerId;
+    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
+  }
+  return where;
+};
+
+export const getReportsData = async (queryParams, userScope = null) => {
+  const result = await getFeedbackRecords(queryParams, userScope);
   const records = result.data;
 
-  // Build Prisma where clause for full unpaginated KPIs
   const { college, course, trainer, sentiment, rating, student, startDate, endDate, search } = queryParams;
-  const where = { status: "active" };
+  let where = { status: "active" };
+
+  where = applyReportsScope(where, userScope);
 
   if (college && college !== "all" && college !== "All Colleges") {
     where.college = { name: college };
@@ -65,8 +88,6 @@ export const getReportsData = async (queryParams) => {
     });
     satisfaction = Math.round((satisfiedCount / total) * 100);
 
-    // With a sentiment filter active every matching record is that sentiment,
-    // so counting the other two would overshoot the filtered total.
     const countBySentiment = async (value) => {
       if (where.sentiment) return where.sentiment === value ? total : 0;
       return prisma.feedbackRecord.count({ where: { ...where, sentiment: value } });
@@ -100,9 +121,9 @@ export const getReportsData = async (queryParams) => {
   };
 };
 
-export const exportReportsPdf = async (queryParams) => {
-  const { kpis, records } = await getReportsData({ ...queryParams, limit: 1000 });
-  const filterInfo = `College: ${queryParams.college || "All"} | Course: ${queryParams.course || "All"} | Trainer: ${queryParams.trainer || "All"}`;
+export const exportReportsPdf = async (queryParams, userScope = null) => {
+  const { kpis, records } = await getReportsData({ ...queryParams, limit: 1000 }, userScope);
+  const filterInfo = `Program: ${userScope?.program || "All"} | College: ${queryParams.college || "All"} | Course: ${queryParams.course || "All"} | Trainer: ${queryParams.trainer || "All"}`;
   const pdfBuffer = generateFeedbackPdf(records, kpis, filterInfo);
 
   return {
@@ -112,10 +133,10 @@ export const exportReportsPdf = async (queryParams) => {
   };
 };
 
-export const exportReportsExcel = async (queryParams) => {
-  return await exportFeedbackRecords({ ...queryParams, format: "xlsx" });
+export const exportReportsExcel = async (queryParams, userScope = null) => {
+  return await exportFeedbackRecords({ ...queryParams, format: "xlsx" }, userScope);
 };
 
-export const exportReportsCsv = async (queryParams) => {
-  return await exportFeedbackRecords({ ...queryParams, format: "csv" });
+export const exportReportsCsv = async (queryParams, userScope = null) => {
+  return await exportFeedbackRecords({ ...queryParams, format: "csv" }, userScope);
 };

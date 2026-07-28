@@ -1,10 +1,31 @@
 import prisma from "../config/db.js";
 import { getPagination, formatPaginatedResponse } from "../utils/pagination.js";
-import { generateFeedbackCode } from "../utils/codeGenerator.js";
 import * as XLSX from "xlsx";
 import { stringify } from "csv-stringify/sync";
 
-export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => {
+const applyScopeToWhere = (where, userScope) => {
+  if (!userScope || userScope.isUnrestricted) return where;
+  
+  if (userScope.isProgramManager) {
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { trainerId: { in: userScope.trainerIds } },
+          { courseId: { in: userScope.courseIds } },
+          { trainer: { program: userScope.program } },
+          { course: { program: userScope.program } },
+        ],
+      },
+    ];
+  } else if (userScope.isTrainer) {
+    const scopeTrainerId = userScope.trainerId;
+    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
+  }
+  return where;
+};
+
+export const getFeedbackRecords = async (queryParams, userScope = null) => {
   const {
     college,
     course,
@@ -24,12 +45,9 @@ export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => 
 
   const isAll = (val) => !val || val === "all" || val === "All Colleges" || val === "All Courses" || val === "All Trainers" || val === "overall";
 
-  const where = { status };
+  let where = { status };
 
-  // RBAC data-scoping: a trainer only ever sees their own feedback.
-  if (scopeTrainerId) {
-    where.trainerId = scopeTrainerId;
-  }
+  where = applyScopeToWhere(where, userScope);
 
   if (college && !isAll(college)) {
     where.college = { name: college };
@@ -42,7 +60,6 @@ export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => 
   if (trainer && !isAll(trainer)) {
     where.trainer = { name: trainer };
   }
-
 
   if (sentiment && sentiment !== "all") {
     where.sentiment = sentiment;
@@ -161,20 +178,19 @@ export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => 
     }),
     prisma.feedbackRecord.count({ where }),
   ]);
-  
 
   const formattedRows = records.map((r) => ({
     id: r.feedbackCode,
     student: r.studentName,
-    course: r.course.title,
-    subject: r.course.title,
-    trainer: r.trainer.name,
+    course: r.course ? r.course.title : "N/A",
+    subject: r.course ? r.course.title : "N/A",
+    trainer: r.trainer ? r.trainer.name : "N/A",
     rating: r.rating,
     sentiment: r.sentiment,
     text: r.feedbackText,
     date: r.createdAt.toISOString().slice(0, 10),
     status: r.status,
-    college: r.college.name,
+    college: r.college ? r.college.name : "N/A",
     department: r.department || "Computer Science",
     batch: r.batch ? r.batch.batchCode : "GEN-B01",
     keywords: (() => { if (!r.aiKeywords) return []; if (Array.isArray(r.aiKeywords)) return r.aiKeywords; try { return JSON.parse(r.aiKeywords); } catch { return [r.aiKeywords]; } })(),
@@ -184,11 +200,14 @@ export const getFeedbackRecords = async (queryParams, scopeTrainerId = null) => 
   return formatPaginatedResponse(formattedRows, total, currentPage, pageSize);
 };
 
-export const getFeedbackFilterOptions = async (queryParams = {}) => {
+export const getFeedbackFilterOptions = async (queryParams = {}, userScope = null) => {
   const { college, course } = queryParams;
 
+  let where = { status: "active" };
+  where = applyScopeToWhere(where, userScope);
+
   const records = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
+    where,
     select: {
       college: { select: { name: true } },
       course: { select: { title: true } },
@@ -199,6 +218,12 @@ export const getFeedbackFilterOptions = async (queryParams = {}) => {
   const collegesSet = new Set();
   const coursesSet = new Set();
   const trainersSet = new Set();
+
+  // If program manager, also add assigned courses & trainers directly so empty feedback won't hide assigned options
+  if (userScope?.isProgramManager) {
+    (userScope.courseTitles || []).forEach((ct) => coursesSet.add(ct));
+    (userScope.trainerNames || []).forEach((tn) => trainersSet.add(tn));
+  }
 
   records.forEach((r) => {
     if (r.college?.name) collegesSet.add(r.college.name);
@@ -221,9 +246,9 @@ export const getFeedbackFilterOptions = async (queryParams = {}) => {
   };
 };
 
-export const getFeedbackStats = async (scopeTrainerId = null) => {
-  // RBAC data-scoping: a trainer only ever sees their own feedback stats.
-  const base = scopeTrainerId ? { trainerId: scopeTrainerId } : {};
+export const getFeedbackStats = async (userScope = null) => {
+  const base = applyScopeToWhere({}, userScope);
+
   const total = await prisma.feedbackRecord.count({ where: { ...base } });
   const positive = await prisma.feedbackRecord.count({ where: { ...base, sentiment: "positive" } });
   const neutral = await prisma.feedbackRecord.count({ where: { ...base, sentiment: "neutral" } });
@@ -249,12 +274,12 @@ export const getFeedbackStats = async (scopeTrainerId = null) => {
   };
 };
 
-export const getFeedbackById = async (id, scopeTrainerId = null) => {
-  const where = {
+export const getFeedbackById = async (id, userScope = null) => {
+  let where = {
     OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
   };
-  // RBAC data-scoping: a trainer can only fetch their own feedback record.
-  if (scopeTrainerId) where.trainerId = scopeTrainerId;
+
+  where = applyScopeToWhere(where, userScope);
 
   const record = await prisma.feedbackRecord.findFirst({
     where,
@@ -267,7 +292,7 @@ export const getFeedbackById = async (id, scopeTrainerId = null) => {
   });
 
   if (!record) {
-    const error = new Error("Feedback record not found.");
+    const error = new Error("Feedback record not found or access denied.");
     error.statusCode = 404;
     throw error;
   }
@@ -275,29 +300,30 @@ export const getFeedbackById = async (id, scopeTrainerId = null) => {
   return {
     id: record.feedbackCode,
     student: record.studentName,
-    course: record.course.title,
-    subject: record.course.title,
-    trainer: record.trainer.name,
+    course: record.course ? record.course.title : "N/A",
+    subject: record.course ? record.course.title : "N/A",
+    trainer: record.trainer ? record.trainer.name : "N/A",
     rating: record.rating,
     sentiment: record.sentiment,
     text: record.feedbackText,
     date: record.createdAt.toISOString().slice(0, 10),
     status: record.status,
-    college: record.college.name,
+    college: record.college ? record.college.name : "N/A",
     department: record.department || "Computer Applications",
-    batch: record.batch ? record.batch.batchCode : "2024-2028",
+    batch: record.batch ? record.batch.batchCode : "GEN-B01",
   };
 };
 
-export const toggleFeedbackStatus = async (id) => {
-  const record = await prisma.feedbackRecord.findFirst({
-    where: {
-      OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
-    },
-  });
+export const toggleFeedbackStatus = async (id, userScope = null) => {
+  let where = {
+    OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
+  };
+  where = applyScopeToWhere(where, userScope);
+
+  const record = await prisma.feedbackRecord.findFirst({ where });
 
   if (!record) {
-    const error = new Error("Feedback record not found.");
+    const error = new Error("Feedback record not found or access denied.");
     error.statusCode = 404;
     throw error;
   }
@@ -311,15 +337,16 @@ export const toggleFeedbackStatus = async (id) => {
   return { id: updated.feedbackCode, status: updated.status };
 };
 
-export const deleteFeedbackRecord = async (id) => {
-  const record = await prisma.feedbackRecord.findFirst({
-    where: {
-      OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
-    },
-  });
+export const deleteFeedbackRecord = async (id, userScope = null) => {
+  let where = {
+    OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
+  };
+  where = applyScopeToWhere(where, userScope);
+
+  const record = await prisma.feedbackRecord.findFirst({ where });
 
   if (!record) {
-    const error = new Error("Feedback record not found.");
+    const error = new Error("Feedback record not found or access denied.");
     error.statusCode = 404;
     throw error;
   }
@@ -328,23 +355,24 @@ export const deleteFeedbackRecord = async (id) => {
   return { id: record.feedbackCode, deleted: true };
 };
 
-export const bulkActionFeedback = async ({ ids, action }) => {
+export const bulkActionFeedback = async ({ ids, action }, userScope = null) => {
   if (!Array.isArray(ids) || ids.length === 0) {
     const error = new Error("No IDs provided for bulk action.");
     error.statusCode = 400;
     throw error;
   }
 
+  let where = { feedbackCode: { in: ids } };
+  where = applyScopeToWhere(where, userScope);
+
   if (action === "archive") {
     await prisma.feedbackRecord.updateMany({
-      where: { feedbackCode: { in: ids } },
+      where,
       data: { status: "archived" },
     });
     return { count: ids.length, action: "archived" };
   } else if (action === "delete") {
-    await prisma.feedbackRecord.deleteMany({
-      where: { feedbackCode: { in: ids } },
-    });
+    await prisma.feedbackRecord.deleteMany({ where });
     return { count: ids.length, action: "deleted" };
   } else if (action === "review") {
     return { count: ids.length, action: "reviewed" };
@@ -355,15 +383,15 @@ export const bulkActionFeedback = async ({ ids, action }) => {
   }
 };
 
-export const exportFeedbackRecords = async (params = {}, scopeTrainerId = null) => {
+export const exportFeedbackRecords = async (params = {}, userScope = null) => {
   const { ids, format = "xlsx", college, course, trainer, sentiment, rating, startDate, endDate, search, status } = params;
 
   const isAll = (val) =>
     !val || val === "all" || val === "All Colleges" || val === "All Courses" || val === "All Trainers" || val === "overall";
 
-  // Build the same filter where-clause the list uses, so exports honor UI filters.
-  const where = {};
-  if (scopeTrainerId) where.trainerId = scopeTrainerId; // RBAC: trainer exports only own
+  let where = {};
+  where = applyScopeToWhere(where, userScope);
+
   if (status && status !== "all") where.status = status;
   if (college && !isAll(college)) where.college = { name: college };
   if (course && !isAll(course)) where.course = { title: course };
@@ -405,9 +433,9 @@ export const exportFeedbackRecords = async (params = {}, scopeTrainerId = null) 
     "Feedback ID": r.feedbackCode,
     Date: r.createdAt.toISOString().slice(0, 10),
     "Student Name": r.studentName,
-    College: r.college.name,
-    Course: r.course.title,
-    Trainer: r.trainer.name,
+    College: r.college ? r.college.name : "N/A",
+    Course: r.course ? r.course.title : "N/A",
+    Trainer: r.trainer ? r.trainer.name : "N/A",
     Batch: r.batch ? r.batch.batchCode : "GEN-B01",
     Rating: r.rating,
     Sentiment: r.sentiment.toUpperCase(),

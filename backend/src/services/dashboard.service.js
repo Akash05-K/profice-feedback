@@ -1,7 +1,24 @@
 import prisma from "../config/db.js";
 
-export const getDashboardStats = async () => {
-  const total = await prisma.feedbackRecord.count({ where: { status: "active" } });
+const buildFeedbackWhere = (userScope, extraWhere = {}) => {
+  const where = { status: "active", ...extraWhere };
+  if (!userScope || userScope.isUnrestricted) return where;
+  if (userScope.isProgramManager) {
+    where.OR = [
+      { trainerId: { in: userScope.trainerIds } },
+      { courseId: { in: userScope.courseIds } },
+      { trainer: { program: userScope.program } },
+      { course: { program: userScope.program } },
+    ];
+  } else if (userScope.isTrainer) {
+    where.trainerId = userScope.trainerId ? (Array.isArray(userScope.trainerId) ? { in: userScope.trainerId } : userScope.trainerId) : -1;
+  }
+  return where;
+};
+
+export const getDashboardStats = async (userScope = null) => {
+  const baseWhere = buildFeedbackWhere(userScope);
+  const total = await prisma.feedbackRecord.count({ where: baseWhere });
   
   if (total === 0) {
     return {
@@ -14,23 +31,34 @@ export const getDashboardStats = async () => {
   }
 
   const avgResult = await prisma.feedbackRecord.aggregate({
-    where: { status: "active" },
+    where: baseWhere,
     _avg: { rating: true },
   });
   const avgRating = (avgResult._avg.rating || 0).toFixed(2);
 
   const satisfiedCount = await prisma.feedbackRecord.count({
-    where: { status: "active", rating: { gte: 3 } },
+    where: buildFeedbackWhere(userScope, { rating: { gte: 3 } }),
   });
   const satisfactionScore = Math.round((satisfiedCount / total) * 100);
 
   const positiveCount = await prisma.feedbackRecord.count({
-    where: { status: "active", sentiment: "positive" },
+    where: buildFeedbackWhere(userScope, { sentiment: "positive" }),
   });
   const positivePercent = Math.round((positiveCount / total) * 100);
 
-  // Response rate based on total students in active batches
+  // Response rate based on total students in active batches scoped to user
+  const batchWhere = {};
+  if (userScope?.isProgramManager) {
+    batchWhere.OR = [
+      { trainerId: { in: userScope.trainerIds } },
+      { courseId: { in: userScope.courseIds } },
+    ];
+  } else if (userScope?.isTrainer) {
+    batchWhere.trainerId = userScope.trainerId ? (Array.isArray(userScope.trainerId) ? { in: userScope.trainerId } : userScope.trainerId) : -1;
+  }
+
   const studentCountAgg = await prisma.batch.aggregate({
+    where: batchWhere,
     _sum: { totalStudents: true },
   });
   const totalEnrolled = studentCountAgg._sum.totalStudents || 0;
@@ -45,9 +73,9 @@ export const getDashboardStats = async () => {
   };
 };
 
-export const getDashboardTrends = async () => {
+export const getDashboardTrends = async (userScope = null) => {
   const records = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
+    where: buildFeedbackWhere(userScope),
     select: { createdAt: true },
   });
 
@@ -69,12 +97,12 @@ export const getDashboardTrends = async () => {
   }));
 };
 
-export const getSentimentDistribution = async () => {
-  const total = await prisma.feedbackRecord.count({ where: { status: "active" } });
+export const getSentimentDistribution = async (userScope = null) => {
+  const total = await prisma.feedbackRecord.count({ where: buildFeedbackWhere(userScope) });
 
-  const pos = await prisma.feedbackRecord.count({ where: { status: "active", sentiment: "positive" } });
-  const neu = await prisma.feedbackRecord.count({ where: { status: "active", sentiment: "neutral" } });
-  const neg = await prisma.feedbackRecord.count({ where: { status: "active", sentiment: "negative" } });
+  const pos = await prisma.feedbackRecord.count({ where: buildFeedbackWhere(userScope, { sentiment: "positive" }) });
+  const neu = await prisma.feedbackRecord.count({ where: buildFeedbackWhere(userScope, { sentiment: "neutral" }) });
+  const neg = await prisma.feedbackRecord.count({ where: buildFeedbackWhere(userScope, { sentiment: "negative" }) });
 
   const denominator = Math.max(1, total);
 
@@ -85,9 +113,9 @@ export const getSentimentDistribution = async () => {
   ];
 };
 
-export const getTopTopics = async () => {
+export const getTopTopics = async (userScope = null) => {
   const records = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
+    where: buildFeedbackWhere(userScope),
     select: { sentiment: true, aiKeywords: true },
   });
 
@@ -137,26 +165,27 @@ export const getTopTopics = async () => {
   };
 };
 
-export const getRecentFeedback = async () => {
+export const getRecentFeedback = async (userScope = null) => {
   const records = await prisma.feedbackRecord.findMany({
-    where: { status: "active" },
+    where: buildFeedbackWhere(userScope),
     orderBy: { createdAt: "desc" },
     take: 3,
-    include: { course: true, college: true },
+    include: { course: true, college: true, trainer: true },
   });
 
   return records.map((r) => ({
     id: r.feedbackCode,
     sentiment: r.sentiment,
     text: r.feedbackText,
-    author: `${r.studentName} (${r.course ? r.course.title : r.college ? r.college.name : "Student"})`,
+    author: `${r.studentName} (${r.trainer ? r.trainer.name + " - " : ""}${r.course ? r.course.title : r.college ? r.college.name : "Student"})`,
   }));
 };
 
-export const getMostNegativeTrainerAlert = async () => {
+export const getMostNegativeTrainerAlert = async (userScope = null) => {
+  const baseWhere = buildFeedbackWhere(userScope, { sentiment: "negative" });
   const grouped = await prisma.feedbackRecord.groupBy({
     by: ["trainerId"],
-    where: { status: "active", sentiment: "negative" },
+    where: baseWhere,
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
     take: 1,
@@ -182,7 +211,7 @@ export const getMostNegativeTrainerAlert = async () => {
   }
 
   const totalCount = await prisma.feedbackRecord.count({
-    where: { status: "active", trainerId: trainer.id },
+    where: buildFeedbackWhere(userScope, { trainerId: trainer.id }),
   });
 
   return {
@@ -192,7 +221,6 @@ export const getMostNegativeTrainerAlert = async () => {
     collegeName: trainer.college ? trainer.college.name : "All Colleges",
     negativeCount,
     totalCount,
-    message: `Attention Required: Trainer ${trainer.name} has recorded the highest negative feedback (${negativeCount} negative reviews out of ${totalCount} total).`,
+    message: `Attention Required: Trainer ${trainer.name} has recorded negative feedback (${negativeCount} negative reviews out of ${totalCount} total).`,
   };
 };
-

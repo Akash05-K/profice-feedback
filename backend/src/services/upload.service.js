@@ -4,7 +4,7 @@ import { generateFeedbackCode } from "../utils/codeGenerator.js";
 import * as aiService from "./ai.service.js";
 import { env } from "../config/env.js";
 
-export const processUploadedFile = async (file, userId) => {
+export const processUploadedFile = async (file, user, userScope = null) => {
   if (!file || !file.buffer) {
     const error = new Error("No file uploaded.");
     error.statusCode = 400;
@@ -19,7 +19,8 @@ export const processUploadedFile = async (file, userId) => {
   }
 
   const adminUser = await prisma.user.findFirst();
-  const uploaderId = userId || (adminUser ? adminUser.id : 1);
+  const uploaderId = user ? user.id : (adminUser ? adminUser.id : 1);
+  const userProgram = userScope?.program || user?.program || null;
 
   const uploadSession = await prisma.uploadSession.create({
     data: {
@@ -35,15 +36,15 @@ export const processUploadedFile = async (file, userId) => {
   let neutral = 0;
   let negative = 0;
 
-  const defaultCollege = (await prisma.college.findFirst()) || { id: 1, name: "PSG College of Technology" };
-  const defaultCourse = (await prisma.course.findFirst()) || { id: 1, title: "M.Sc Data Science" };
-  const defaultTrainer = (await prisma.trainer.findFirst()) || { id: 1, name: "Harish" };
+  const programWhere = userProgram ? { program: userProgram } : {};
 
-  // Fetch ALL existing feedback codes to find the true max numeric suffix across the DB
+  const defaultCollege = (await prisma.college.findFirst()) || { id: 1, name: "PSG College of Technology" };
+  const defaultCourse = (await prisma.course.findFirst({ where: programWhere })) || (await prisma.course.findFirst()) || { id: 1, title: "M.Sc Data Science" };
+  const defaultTrainer = (await prisma.trainer.findFirst({ where: programWhere })) || (await prisma.trainer.findFirst()) || { id: 1, name: "Harish" };
+
   const existingRecords = await prisma.feedbackRecord.findMany({
     select: { feedbackCode: true },
   });
-  const usedCodes = new Set(existingRecords.map((r) => r.feedbackCode));
   let highestNum = 1042;
   existingRecords.forEach((r) => {
     if (r.feedbackCode) {
@@ -60,8 +61,6 @@ export const processUploadedFile = async (file, userId) => {
   const trainerCache = {};
   const batchCache = {};
 
-  // --- AI pass: classify sentiment + keywords from the feedback TEXT (batched) ---
-  // Falls back per-row to rating/column-based sentiment when the AI is unavailable.
   const classifyItems = rows.map((row, i) => {
     const rKey = Object.keys(row).find((k) => k.toLowerCase().includes("rating"));
     const tKey = Object.keys(row).find(
@@ -78,7 +77,6 @@ export const processUploadedFile = async (file, userId) => {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
 
-    // Key matchers
     const ratingKey = Object.keys(row).find((k) => k.toLowerCase().includes("rating"));
     const sentimentKey = Object.keys(row).find((k) => k.toLowerCase().includes("sentiment"));
     const textKey = Object.keys(row).find(
@@ -103,30 +101,24 @@ export const processUploadedFile = async (file, userId) => {
       (k) => k.toLowerCase().includes("department") || k.toLowerCase().includes("dept")
     );
 
-    // Parse Rating
     let rating = 4;
     if (ratingKey && row[ratingKey]) {
       rating = Number(row[ratingKey]) || 4;
     }
 
-    // Sentiment: AI text analysis first, then column, then rating-based fallback.
     const aiResult = aiClassification.get(i);
     let sentiment;
-    let sentimentSource;
     if (aiResult) {
       sentiment = aiResult.sentiment;
-      sentimentSource = "ai";
     } else if (sentimentKey && row[sentimentKey]) {
       const val = String(row[sentimentKey]).toLowerCase();
       if (val.includes("pos")) sentiment = "positive";
       else if (val.includes("neg")) sentiment = "negative";
       else sentiment = "neutral";
-      sentimentSource = "column";
     } else {
       if (rating >= 4) sentiment = "positive";
       else if (rating === 3) sentiment = "neutral";
       else sentiment = "negative";
-      sentimentSource = "rating";
     }
 
     if (sentiment === "positive") positive++;
@@ -157,10 +149,13 @@ export const processUploadedFile = async (file, userId) => {
     if (trainerCache[`${collegeId}_${trainerName}`]) {
       trainerId = trainerCache[`${collegeId}_${trainerName}`];
     } else {
-      let foundTrainer = await prisma.trainer.findFirst({ where: { name: trainerName } });
+      let foundTrainer = await prisma.trainer.findFirst({
+        where: { name: trainerName, ...(userProgram ? { program: userProgram } : {}) },
+      }) || await prisma.trainer.findFirst({ where: { name: trainerName } });
+
       if (!foundTrainer) {
         foundTrainer = await prisma.trainer.create({
-          data: { name: trainerName, collegeId, subjectSpecialties: JSON.stringify(["General Instruction"]) },
+          data: { name: trainerName, collegeId, program: userProgram, subjectSpecialties: JSON.stringify(["General Instruction"]) },
         });
       }
       trainerCache[`${collegeId}_${trainerName}`] = foundTrainer.id;
@@ -174,92 +169,72 @@ export const processUploadedFile = async (file, userId) => {
     if (courseCache[`${collegeId}_${courseTitle}`]) {
       courseId = courseCache[`${collegeId}_${courseTitle}`];
     } else {
-      let foundCourse = await prisma.course.findFirst({ where: { title: courseTitle, collegeId } });
+      let foundCourse = await prisma.course.findFirst({
+        where: { title: courseTitle, collegeId, ...(userProgram ? { program: userProgram } : {}) },
+      }) || await prisma.course.findFirst({ where: { title: courseTitle, collegeId } });
+
       if (!foundCourse) {
         foundCourse = await prisma.course.create({
-          data: { title: courseTitle, category: "General", durationWeeks: 12, collegeId },
+          data: { title: courseTitle, category: "General", durationWeeks: 12, collegeId, program: userProgram },
         });
       }
       courseCache[`${collegeId}_${courseTitle}`] = foundCourse.id;
+      courseCache[courseTitle] = foundCourse.id;
       courseId = foundCourse.id;
     }
 
     // 4. Resolve Batch
-    const batchCode = batchKey && row[batchKey] ? String(row[batchKey]).trim() : "GEN-B01";
+    const rawBatchCode = batchKey && row[batchKey] ? String(row[batchKey]).trim() : null;
+    const batchCode = rawBatchCode || `BATCH-${trainerId}-${courseId}`;
     let batchId = null;
     if (batchCache[batchCode]) {
       batchId = batchCache[batchCode];
     } else {
-      let foundBatch = await prisma.batch.findFirst({ where: { batchCode } });
+      let foundBatch = await prisma.batch.findUnique({ where: { batchCode } });
       if (!foundBatch) {
-        try {
-          foundBatch = await prisma.batch.create({
-            data: { batchCode, courseId, trainerId, totalStudents: 30 },
-          });
-        } catch (err) {
-          foundBatch = await prisma.batch.findFirst({ where: { batchCode } });
-        }
+        foundBatch = await prisma.batch.create({
+          data: { batchCode, courseId, trainerId, totalStudents: 30 },
+        });
       }
-      if (foundBatch) {
-        batchCache[batchCode] = foundBatch.id;
-        batchId = foundBatch.id;
-      }
+      batchCache[batchCode] = foundBatch.id;
+      batchId = foundBatch.id;
     }
 
-    let code = `FB-${currentCodeNum}`;
-    while (usedCodes.has(code)) {
-      currentCodeNum++;
-      code = `FB-${currentCodeNum}`;
-    }
-    usedCodes.add(code);
-    currentCodeNum++;
-
-    // Keywords: AI-extracted when available, else a naive text extraction fallback.
-    let keywords;
-    if (aiResult && aiResult.keywords.length > 0) {
-      keywords = aiResult.keywords;
-    } else {
-      const textWords = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const stopWords = new Set(["with", "this", "that", "from", "have", "were", "very", "good", "more", "some", "they"]);
-      const extractedKw = Array.from(new Set(textWords.filter((w) => !stopWords.has(w)))).slice(0, 4);
-      keywords = extractedKw.length > 0 ? extractedKw : ["teaching", "explanation", "practical"];
-    }
-
-    // Confidence reflects how the sentiment was derived (AI text analysis is highest).
-    const confidence = sentimentSource === "ai" ? 0.95 : sentimentSource === "column" ? 0.8 : 0.6;
+    const feedbackCode = generateFeedbackCode(currentCodeNum++);
+    const aiKws = aiResult && aiResult.keywords.length > 0 ? JSON.stringify(aiResult.keywords) : null;
+    const aiConf = aiResult ? aiResult.confidence : null;
 
     await prisma.feedbackRecord.create({
       data: {
-        feedbackCode: code,
+        feedbackCode,
         studentName,
         department,
+        batchId,
         courseId,
         trainerId,
         collegeId,
-        batchId,
         rating,
         sentiment,
         feedbackText: text,
-        aiKeywords: JSON.stringify(keywords),
-        aiConfidence: confidence,
+        aiKeywords: aiKws,
+        aiConfidence: aiConf,
         status: "active",
         uploadSessionId: uploadSession.id,
       },
     });
   }
 
+  const total = rows.length;
   const updatedSession = await prisma.uploadSession.update({
     where: { id: uploadSession.id },
     data: {
-      processedRows: rows.length,
+      processedRows: total,
       status: "completed",
-     summary: JSON.stringify({ positive, neutral, negative }),
+      summary: `Processed ${total} feedback records: ${positive} positive, ${neutral} neutral, ${negative} negative.`,
     },
   });
 
-  const total = rows.length;
   const denominator = Math.max(1, total);
-
   const sentimentData = [
     { name: "Positive", value: Math.round((positive / denominator) * 100), count: String(positive), color: "#16A34A" },
     { name: "Neutral", value: Math.round((neutral / denominator) * 100), count: String(neutral), color: "#F59E0B" },
@@ -281,8 +256,7 @@ export const processUploadedFile = async (file, userId) => {
   };
 };
 
-export const getUploadSessions = async () => {
-  // Auto-heal any stale processing sessions if nodemon/server restarted mid-upload
+export const getUploadSessions = async (userScope = null) => {
   const processingSessions = await prisma.uploadSession.findMany({
     where: { status: "processing" },
   });
@@ -300,13 +274,25 @@ export const getUploadSessions = async () => {
     });
   }
 
+  let sessionWhere = {};
+  if (userScope?.isProgramManager) {
+    sessionWhere = {
+      OR: [
+        { feedbackRecords: { some: { trainer: { program: userScope.program } } } },
+        { feedbackRecords: { some: { course: { program: userScope.program } } } },
+        { feedbackRecords: { some: { trainerId: { in: userScope.trainerIds } } } },
+      ],
+    };
+  }
+
   return await prisma.uploadSession.findMany({
+    where: sessionWhere,
     orderBy: { createdAt: "desc" },
     take: 20,
   });
 };
 
-export const getUploadSessionAnalysis = async (sessionId) => {
+export const getUploadSessionAnalysis = async (sessionId, userScope = null) => {
   const sessIdNum = parseInt(sessionId, 10);
   if (isNaN(sessIdNum)) {
     const error = new Error("Invalid session ID.");
@@ -324,8 +310,18 @@ export const getUploadSessionAnalysis = async (sessionId) => {
     throw error;
   }
 
+  let recordWhere = { uploadSessionId: sessIdNum };
+  if (userScope?.isProgramManager) {
+    recordWhere.OR = [
+      { trainerId: { in: userScope.trainerIds } },
+      { courseId: { in: userScope.courseIds } },
+      { trainer: { program: userScope.program } },
+      { course: { program: userScope.program } },
+    ];
+  }
+
   const records = await prisma.feedbackRecord.findMany({
-    where: { uploadSessionId: sessIdNum },
+    where: recordWhere,
   });
 
   const total = records.length;
@@ -387,10 +383,9 @@ export const getUploadSessionAnalysis = async (sessionId) => {
 
   const fallbackSummary =
     total === 0
-      ? "No feedback records were found in this file."
-      : `This file contains ${total} feedback records: ${positive} positive, ${neutral} neutral and ${negative} negative.`;
+      ? "No feedback records were found for your program in this file."
+      : `This file contains ${total} feedback records for your program: ${positive} positive, ${neutral} neutral and ${negative} negative.`;
 
-  // Gemini generates the real summary + actions; falls back to the rule-based output.
   const { summary, actions } = await aiService.generateSessionInsights(
     { filename: session.filename, records, counts: { positive, neutral, negative, total } },
     { summary: fallbackSummary, actions: fallbackActions }
@@ -412,7 +407,7 @@ export const getUploadSessionAnalysis = async (sessionId) => {
   };
 };
 
-export const deleteUploadSession = async (sessionId) => {
+export const deleteUploadSession = async (sessionId, userScope = null) => {
   const sessIdNum = parseInt(sessionId, 10);
   if (isNaN(sessIdNum)) {
     const error = new Error("Invalid session ID.");
@@ -430,15 +425,23 @@ export const deleteUploadSession = async (sessionId) => {
     throw error;
   }
 
-  // Delete all feedback records belonging to this upload session
+  let deleteWhere = { uploadSessionId: sessIdNum };
+  if (userScope?.isProgramManager) {
+    deleteWhere.OR = [
+      { trainerId: { in: userScope.trainerIds } },
+      { courseId: { in: userScope.courseIds } },
+      { trainer: { program: userScope.program } },
+      { course: { program: userScope.program } },
+    ];
+  }
+
   const deleted = await prisma.feedbackRecord.deleteMany({
-    where: { uploadSessionId: sessIdNum },
+    where: deleteWhere,
   });
 
-  // Delete the upload session itself
   await prisma.uploadSession.delete({
     where: { id: sessIdNum },
-  });
+  }).catch(() => {});
 
   return {
     sessionId: sessIdNum,

@@ -3,9 +3,6 @@ import * as aiService from "./ai.service.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Build a REAL month-by-month average-rating trend from feedback rows.
-// Returns chronological [{ month: "Jul 2026", rating }]. One bucket per month that
-// actually has feedback — no fabricated/repeated points.
 export const buildRatingTrend = (records) => {
   const byMonth = new Map();
   records.forEach((r) => {
@@ -21,16 +18,19 @@ export const buildRatingTrend = (records) => {
     .map(([, v]) => ({ month: v.label, rating: Number((v.sum / v.n).toFixed(2)) }));
 };
 
-export const getTrainerFilterOptions = async (queryParams = {}, scopeTrainerId = null) => {
+export const getTrainerFilterOptions = async (queryParams = {}, userScope = null) => {
   const { college, course } = queryParams;
 
-  const where = { status: "active" };
-  if (scopeTrainerId) {
-    if (Array.isArray(scopeTrainerId)) {
-      where.trainerId = { in: scopeTrainerId };
-    } else {
-      where.trainerId = scopeTrainerId;
-    }
+  let where = { status: "active" };
+
+  if (userScope?.isProgramManager) {
+    where.OR = [
+      { trainerId: { in: userScope.trainerIds } },
+      { trainer: { program: userScope.program } },
+    ];
+  } else if (userScope?.isTrainer) {
+    const scopeTrainerId = userScope.trainerId;
+    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
   }
 
   const records = await prisma.feedbackRecord.findMany({
@@ -38,13 +38,21 @@ export const getTrainerFilterOptions = async (queryParams = {}, scopeTrainerId =
     select: {
       college: { select: { name: true } },
       course: { select: { title: true } },
-      trainer: { select: { id: true, name: true } },
+      trainer: { select: { id: true, name: true, program: true } },
     },
   });
 
   const collegesSet = new Set();
   const coursesSet = new Set();
   const trainersMap = new Map();
+
+  if (userScope?.isProgramManager) {
+    const dbTrainers = await prisma.trainer.findMany({
+      where: { program: userScope.program },
+      select: { id: true, name: true },
+    });
+    dbTrainers.forEach((t) => trainersMap.set(String(t.id), t.name));
+  }
 
   records.forEach((r) => {
     if (r.college?.name) collegesSet.add(r.college.name);
@@ -67,48 +75,51 @@ export const getTrainerFilterOptions = async (queryParams = {}, scopeTrainerId =
   return {
     colleges: ["All Colleges", ...Array.from(collegesSet).sort()],
     courses: ["All Courses", ...Array.from(coursesSet).sort()],
-    trainers: scopeTrainerId
+    trainers: userScope?.isTrainer
       ? trainersList
       : [{ id: "overall", name: "Overall Classification" }, ...trainersList],
   };
 };
 
-export const getTrainersList = async (collegeName, courseTitle) => {
-  const where = { status: "active" };
+export const getTrainersList = async (collegeName, courseTitle, userScope = null) => {
+  let trainerWhere = {};
+  if (userScope?.isProgramManager) {
+    trainerWhere.program = userScope.program;
+  } else if (userScope?.isTrainer) {
+    trainerWhere.id = userScope.trainerId ? (Array.isArray(userScope.trainerId) ? { in: userScope.trainerId } : userScope.trainerId) : -1;
+  }
 
   if (collegeName && collegeName !== "All Colleges") {
-    where.college = { name: collegeName };
-  }
-  if (courseTitle && courseTitle !== "All Courses") {
-    where.course = { title: courseTitle };
+    trainerWhere.college = { name: collegeName };
   }
 
-  const records = await prisma.feedbackRecord.findMany({
-    where,
-    select: {
-      trainer: { select: { id: true, name: true, subjectSpecialties: true, college: { select: { name: true } } } },
-    },
+  const dbTrainers = await prisma.trainer.findMany({
+    where: trainerWhere,
+    include: { college: true },
   });
 
-  const trainersMap = new Map();
-  records.forEach((r) => {
-    if (r.trainer?.id) {
-      const t = r.trainer;
-      trainersMap.set(String(t.id), {
-        id: String(t.id),
-        name: t.name,
-        subject: Array.isArray(t.subjectSpecialties) ? t.subjectSpecialties.join(" & ") : "All Subjects",
-        college: t.college ? t.college.name : "All Colleges",
-      });
+  const list = dbTrainers.map((t) => {
+    let specialties = "All Subjects";
+    if (t.subjectSpecialties) {
+      try {
+        const parsed = JSON.parse(t.subjectSpecialties);
+        if (Array.isArray(parsed)) specialties = parsed.join(" & ");
+      } catch {
+        specialties = t.subjectSpecialties;
+      }
     }
-  });
-
-  const list = Array.from(trainersMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      id: String(t.id),
+      name: t.name,
+      subject: specialties,
+      college: t.college ? t.college.name : "All Colleges",
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 
   return [{ id: "overall", name: "Overall Classification", subject: "All Trainers & Subjects", college: "All Colleges" }, ...list];
 };
 
-export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
+export const getTrainerMetrics = async (trainerId, queryParams = {}, userScope = null) => {
   const { college, course } = queryParams;
   const where = { status: "active" };
 
@@ -119,24 +130,34 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
     where.course = { title: course };
   }
 
-  if (trainerId && trainerId !== "overall") {
-    if (Array.isArray(trainerId)) {
-      where.trainerId = { in: trainerId.map((id) => Number(id)).filter((id) => !isNaN(id)) };
-    } else {
-      const idNum = parseInt(trainerId, 10);
-      const trainer = await prisma.trainer.findFirst({
-        where: {
-          OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }],
-        },
-      });
+  if (userScope?.isProgramManager) {
+    where.OR = [
+      { trainerId: { in: userScope.trainerIds } },
+      { trainer: { program: userScope.program } },
+    ];
+  }
 
-      if (trainer) {
-        const allMatchingTrainers = await prisma.trainer.findMany({
-          where: { name: { equals: trainer.name } },
-          select: { id: true },
-        });
-        where.trainerId = { in: allMatchingTrainers.map((t) => t.id) };
+  if (trainerId && trainerId !== "overall") {
+    const idNum = parseInt(trainerId, 10);
+    const trainer = await prisma.trainer.findFirst({
+      where: {
+        OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }],
+      },
+    });
+
+    if (trainer) {
+      // Security check for Program Manager: ensure trainer belongs to PM's program
+      if (userScope?.isProgramManager && trainer.program !== userScope.program && !userScope.trainerIds.includes(trainer.id)) {
+        const error = new Error("Access denied. Trainer belongs to another Program Manager.");
+        error.statusCode = 403;
+        throw error;
       }
+
+      const allMatchingTrainers = await prisma.trainer.findMany({
+        where: { name: { equals: trainer.name } },
+        select: { id: true },
+      });
+      where.trainerId = { in: allMatchingTrainers.map((t) => t.id) };
     }
   }
 
@@ -167,18 +188,22 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
   const satisfiedCount = records.filter((r) => r.rating >= 3).length;
   const satisfaction = Math.round((satisfiedCount / totalReviews) * 100);
 
-  // Count distinct batches matching these records
   const batchIdsSet = new Set(records.map((r) => r.batchId).filter(Boolean));
   const totalBatches = batchIdsSet.size;
-  // Real metric instead of a fabricated "sessions = batches * 20".
   const positiveRate = Math.round((records.filter((r) => r.sentiment === "positive").length / totalReviews) * 100);
 
-  // Extract strengths and weaknesses from keywords in positive & negative feedback
   const posKeywords = {};
   const negKeywords = {};
 
   records.forEach((r) => {
-    const kws = Array.isArray(r.aiKeywords) ? r.aiKeywords : [];
+    let kws = [];
+    if (r.aiKeywords) {
+      if (Array.isArray(r.aiKeywords)) {
+        kws = r.aiKeywords;
+      } else {
+        try { kws = JSON.parse(r.aiKeywords); } catch { kws = []; }
+      }
+    }
     kws.forEach((kw) => {
       const clean = String(kw).toLowerCase().trim();
       if (!clean) return;
@@ -200,7 +225,6 @@ export const getTrainerMetrics = async (trainerId, queryParams = {}) => {
     .slice(0, 3)
     .map(([kw]) => `Improvement needed regarding ${kw}`);
 
-  // Keyword-based output is the graceful fallback; Gemini generates the real insight.
   const fallbackInsights = {
     strengths: topPos.length > 0 ? topPos : ["Strong overall student feedback"],
     weaknesses: topNeg.length > 0 ? topNeg : ["No major negative feedback reported"],

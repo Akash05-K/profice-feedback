@@ -1,8 +1,10 @@
 import * as reportsService from "../services/reports.service.js";
+import { resolveUserScope } from "../services/auth.service.js";
 
 export const getReport = async (req, res, next) => {
   try {
-    const data = await reportsService.getReportsData(req.query);
+    const userScope = await resolveUserScope(req.user);
+    const data = await reportsService.getReportsData(req.query, userScope);
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);
@@ -11,7 +13,8 @@ export const getReport = async (req, res, next) => {
 
 export const exportPdf = async (req, res, next) => {
   try {
-    const { buffer, filename, contentType } = await reportsService.exportReportsPdf(req.query);
+    const userScope = await resolveUserScope(req.user);
+    const { buffer, filename, contentType } = await reportsService.exportReportsPdf(req.query, userScope);
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(200).send(buffer);
@@ -22,7 +25,8 @@ export const exportPdf = async (req, res, next) => {
 
 export const exportExcel = async (req, res, next) => {
   try {
-    const { buffer, filename, contentType } = await reportsService.exportReportsExcel(req.query);
+    const userScope = await resolveUserScope(req.user);
+    const { buffer, filename, contentType } = await reportsService.exportReportsExcel(req.query, userScope);
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(200).send(buffer);
@@ -33,7 +37,8 @@ export const exportExcel = async (req, res, next) => {
 
 export const exportCsv = async (req, res, next) => {
   try {
-    const { buffer, filename, contentType } = await reportsService.exportReportsCsv(req.query);
+    const userScope = await resolveUserScope(req.user);
+    const { buffer, filename, contentType } = await reportsService.exportReportsCsv(req.query, userScope);
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(200).send(buffer);

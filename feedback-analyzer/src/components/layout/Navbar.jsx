@@ -53,7 +53,11 @@ function Navbar({ title, subtitle, onToggleSidebar }) {
           </span>
           <span className="topbar-account__meta">
             <span className="topbar-account__name">{user?.name || "User"}</span>
-            <span className="topbar-account__role">{ROLE_LABELS[user?.role] || "Member"}</span>
+            <span className="topbar-account__role">
+              {user?.role === "program_manager"
+                ? `${user?.program || "IBM"} Program Manager`
+                : ROLE_LABELS[user?.role] || "Member"}
+            </span>
           </span>
         </div>
 

@@ -1,21 +1,46 @@
 import prisma from "../config/db.js";
 import * as aiService from "../services/ai.service.js";
-import { resolveTrainerScope } from "../services/auth.service.js";
+import { resolveUserScope } from "../services/auth.service.js";
+
+const applyAiScope = (where, userScope) => {
+  if (!userScope || userScope.isUnrestricted) return where;
+
+  if (userScope.isProgramManager) {
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { trainerId: { in: userScope.trainerIds } },
+          { courseId: { in: userScope.courseIds } },
+          { trainer: { program: userScope.program } },
+          { course: { program: userScope.program } },
+        ],
+      },
+    ];
+  } else if (userScope.isTrainer) {
+    const scopeTrainerId = userScope.trainerId;
+    where.trainerId = scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1;
+  }
+  return where;
+};
 
 /**
  * GET /api/v1/ai/dashboard-summary
- * Executive AI summary of the whole database for the Dashboard AI Summary card.
+ * Executive AI summary scoped to user's assigned data.
  */
 export const getDashboardSummary = async (req, res, next) => {
   try {
+    const userScope = await resolveUserScope(req.user);
+    const where = applyAiScope({ status: "active" }, userScope);
+
     const [total, avgAgg, pos, neu, neg, sample] = await Promise.all([
-      prisma.feedbackRecord.count({ where: { status: "active" } }),
-      prisma.feedbackRecord.aggregate({ where: { status: "active" }, _avg: { rating: true } }),
-      prisma.feedbackRecord.count({ where: { status: "active", sentiment: "positive" } }),
-      prisma.feedbackRecord.count({ where: { status: "active", sentiment: "neutral" } }),
-      prisma.feedbackRecord.count({ where: { status: "active", sentiment: "negative" } }),
+      prisma.feedbackRecord.count({ where }),
+      prisma.feedbackRecord.aggregate({ where, _avg: { rating: true } }),
+      prisma.feedbackRecord.count({ where: { ...where, sentiment: "positive" } }),
+      prisma.feedbackRecord.count({ where: { ...where, sentiment: "neutral" } }),
+      prisma.feedbackRecord.count({ where: { ...where, sentiment: "negative" } }),
       prisma.feedbackRecord.findMany({
-        where: { status: "active" },
+        where,
         orderBy: { createdAt: "desc" },
         take: 40,
         select: { sentiment: true, rating: true, feedbackText: true },
@@ -34,12 +59,11 @@ export const getDashboardSummary = async (req, res, next) => {
       negative: neg,
     };
 
-    // Deterministic fallback used when AI is disabled / fails.
     const fallback = {
       text:
         total === 0
-          ? "No feedback has been collected yet. Upload a feedback file to generate AI insights."
-          : `Across ${total} feedback records the average rating is ${avgRating}/5 with ${sentiment.positivePct}% positive, ${sentiment.neutralPct}% neutral and ${sentiment.negativePct}% negative sentiment. Review the improvement areas below to prioritise coaching.`,
+          ? "No feedback has been collected yet for your assigned program. Upload feedback to generate AI insights."
+          : `Across ${total} feedback records in ${userScope?.program ? userScope.program + " Program" : "your scope"}, the average rating is ${avgRating}/5 with ${sentiment.positivePct}% positive, ${sentiment.neutralPct}% neutral and ${sentiment.negativePct}% negative sentiment.`,
       meta: { model: "fallback" },
     };
 
@@ -56,26 +80,33 @@ export const getDashboardSummary = async (req, res, next) => {
 
 /**
  * GET /api/v1/ai/recommendations?trainerId=
- * AI Recommendation Engine: summary + suggestions + risks (Gemini) plus
- * real performance predictions (from monthly ratings) and real action-plan count.
+ * AI Recommendations scoped to user's assigned program/trainer.
  */
 export const getRecommendations = async (req, res, next) => {
   try {
+    const userScope = await resolveUserScope(req.user);
     const { trainerId } = req.query;
-    const where = { status: "active" };
-    let scopeLabel = "All Trainers";
+    let where = applyAiScope({ status: "active" }, userScope);
+    let scopeLabel = userScope?.program ? `${userScope.program} Program` : "All Trainers";
 
     if (trainerId && trainerId !== "overall") {
       const idNum = parseInt(trainerId, 10);
       const trainer = await prisma.trainer.findFirst({
         where: { OR: [{ id: isNaN(idNum) ? -1 : idNum }, { name: trainerId }] },
-        select: { id: true, name: true },
+        select: { id: true, name: true, program: true },
       });
       if (trainer) {
+        if (userScope?.isProgramManager && trainer.program !== userScope.program && !userScope.trainerIds.includes(trainer.id)) {
+          return res.status(403).json({ success: false, message: "Access denied. Trainer belongs to another Program Manager." });
+        }
         where.trainerId = trainer.id;
         scopeLabel = trainer.name;
       }
     }
+
+    const actionWhere = userScope?.isProgramManager
+      ? { status: { in: ["open", "in_progress"] }, assignedTo: { OR: [{ program: userScope.program }, { id: { in: userScope.trainerIds } }] } }
+      : { status: { in: ["open", "in_progress"] } };
 
     const [records, pos, neu, neg, openActions] = await Promise.all([
       prisma.feedbackRecord.findMany({
@@ -87,7 +118,7 @@ export const getRecommendations = async (req, res, next) => {
       prisma.feedbackRecord.count({ where: { ...where, sentiment: "positive" } }),
       prisma.feedbackRecord.count({ where: { ...where, sentiment: "neutral" } }),
       prisma.feedbackRecord.count({ where: { ...where, sentiment: "negative" } }),
-      prisma.actionItem.count({ where: { status: { in: ["open", "in_progress"] } } }),
+      prisma.actionItem.count({ where: actionWhere }),
     ]);
 
     const total = records.length;
@@ -98,7 +129,6 @@ export const getRecommendations = async (req, res, next) => {
       negativePct: Math.round((neg / denom) * 100),
     };
 
-    // Real monthly performance: avg rating -> % (rating*20), with a light upward projection.
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const byMonth = {};
     records.forEach((r) => {
@@ -117,7 +147,6 @@ export const getRecommendations = async (req, res, next) => {
       ? `${predictions[predictions.length - 1].predictedValue}%`
       : "—";
 
-    // Keyword-based fallback so the page works even without the LLM.
     const negWords = {};
     records.forEach((r) => {
       if (r.sentiment !== "positive") {
@@ -169,13 +198,8 @@ export const getRecommendations = async (req, res, next) => {
   }
 };
 
-/**
- * Build a compact, grounded data context for the free-form chat.
- * RBAC-scoped: a trainer only ever gets their own data.
- */
-const buildChatContext = async (scopeTrainerId) => {
-  const where = { status: "active" };
-  if (scopeTrainerId) where.trainerId = scopeTrainerId;
+const buildChatContext = async (userScope) => {
+  const where = applyAiScope({ status: "active" }, userScope);
 
   const [total, avgAgg, pos, neu, neg, records] = await Promise.all([
     prisma.feedbackRecord.count({ where }),
@@ -200,18 +224,14 @@ const buildChatContext = async (scopeTrainerId) => {
 
   const avgRating = Number((avgAgg._avg.rating || 0).toFixed(2));
 
-  // Whitelisted aggregates (safe, precomputed) so analytical questions are answerable
-  // without executing any LLM-authored SQL.
-  const groupByTrainer = scopeTrainerId
-    ? []
-    : await prisma.feedbackRecord.groupBy({
-        by: ["trainerId"],
-        where,
-        _avg: { rating: true },
-        _count: { _all: true },
-        orderBy: { _avg: { rating: "desc" } },
-        take: 10,
-      });
+  const groupByTrainer = await prisma.feedbackRecord.groupBy({
+    by: ["trainerId"],
+    where,
+    _avg: { rating: true },
+    _count: { _all: true },
+    orderBy: { _avg: { rating: "desc" } },
+    take: 10,
+  });
 
   const trainerNames = groupByTrainer.length
     ? await prisma.trainer.findMany({
@@ -232,8 +252,10 @@ const buildChatContext = async (scopeTrainerId) => {
     )
     .join("\n");
 
-  const scopeNote = scopeTrainerId
-    ? "SCOPE: This user is a Trainer and may ONLY see their own feedback. All numbers below are their own.\n"
+  const scopeNote = userScope?.program
+    ? `SCOPE: Program Manager for ${userScope.program} Program. Strictly isolated to ${userScope.program} trainers and courses.\n`
+    : userScope?.isTrainer
+    ? "SCOPE: Trainer viewing own feedback.\n"
     : "";
 
   return (
@@ -247,8 +269,6 @@ const buildChatContext = async (scopeTrainerId) => {
 
 /**
  * POST /api/v1/ai/chat
- * Free-form, RBAC-scoped Q&A grounded in the feedback data.
- * Body: { message: string, history?: [{user, assistant}] }
  */
 export const postChat = async (req, res, next) => {
   try {
@@ -259,13 +279,14 @@ export const postChat = async (req, res, next) => {
     if (String(message).length > 2000) {
       return res.status(400).json({ success: false, message: "Question is too long (max 2000 characters)." });
     }
-    // Bound the history that gets folded into the prompt (cost / abuse guard).
+
     const safeHistory = (Array.isArray(history) ? history : [])
       .slice(-5)
       .map((h) => ({
         user: String(h?.user ?? "").slice(0, 2000),
         assistant: String(h?.assistant ?? "").slice(0, 2000),
       }));
+
     if (!aiService.isAiEnabled()) {
       return res.status(503).json({
         success: false,
@@ -273,8 +294,8 @@ export const postChat = async (req, res, next) => {
       });
     }
 
-    const scopeTrainerId = await resolveTrainerScope(req.user);
-    const context = await buildChatContext(scopeTrainerId);
+    const userScope = await resolveUserScope(req.user);
+    const context = await buildChatContext(userScope);
 
     const answer = await aiService.chatComplete({
       message: String(message).trim(),
@@ -282,7 +303,7 @@ export const postChat = async (req, res, next) => {
       context,
     });
 
-    res.status(200).json({ success: true, data: { answer, scoped: Boolean(scopeTrainerId) } });
+    res.status(200).json({ success: true, data: { answer, scoped: !userScope.isUnrestricted } });
   } catch (err) {
     next(err);
   }

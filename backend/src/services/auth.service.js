@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../config/db.js";
 import { env } from "../config/env.js";
 
-export const registerUser = async ({ email, password, name, role }) => {
+export const registerUser = async ({ email, password, name, role, program }) => {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     const error = new Error("User with this email already exists.");
@@ -18,6 +18,7 @@ export const registerUser = async ({ email, password, name, role }) => {
       passwordHash,
       name,
       role: role || "super_admin",
+      program: program || null,
       notificationPreferences: {
         create: {
           emailEnabled: true,
@@ -27,10 +28,10 @@ export const registerUser = async ({ email, password, name, role }) => {
         },
       },
     },
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, program: true, createdAt: true },
   });
 
-  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, env.JWT_SECRET, {
+  const token = jwt.sign({ id: user.id, email: user.email, role: user.role, program: user.program }, env.JWT_SECRET, {
     expiresIn: env.JWT_EXPIRES_IN,
   });
 
@@ -52,7 +53,7 @@ export const loginUser = async ({ email, password }) => {
     throw error;
   }
 
-  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, env.JWT_SECRET, {
+  const token = jwt.sign({ id: user.id, email: user.email, role: user.role, program: user.program }, env.JWT_SECRET, {
     expiresIn: env.JWT_EXPIRES_IN,
   });
 
@@ -62,11 +63,6 @@ export const loginUser = async ({ email, password }) => {
 
 /**
  * Resolve the Trainer data-entity that a logged-in trainer User maps to.
- *
- * The login `User` table and the data-entity `Trainer` table have no FK, so we
- * link them by email (case-insensitive). Used to scope trainers to ONLY their own
- * feedback/insights/chat context. Returns the Trainer id or null (non-trainer, or
- * no matching trainer record).
  */
 export const resolveTrainerScope = async (user) => {
   if (!user || user.role !== "trainer") return null;
@@ -85,4 +81,87 @@ export const resolveTrainerScope = async (user) => {
   if (!trainers || trainers.length === 0) return null;
   const ids = trainers.map((t) => t.id);
   return ids.length === 1 ? ids[0] : ids;
+};
+
+/**
+ * Resolves the full data scope for any logged-in user based on their role and assigned program.
+ * - Program Managers: Restricted strictly to trainers & courses in their program (IBM vs Oracle).
+ * - Trainers: Restricted strictly to their own trainer record.
+ * - Admin/Management: Unrestricted access.
+ */
+export const resolveUserScope = async (user) => {
+  if (!user) {
+    return { isUnrestricted: true };
+  }
+
+  // 1. Program Manager Data Scope
+  if (user.role === "program_manager") {
+    let program = user.program;
+    if (!program) {
+      if (user.email && user.email.toLowerCase().includes("oracle")) {
+        program = "Oracle";
+      } else {
+        program = "IBM";
+      }
+    }
+
+    const trainers = await prisma.trainer.findMany({
+      where: { program },
+      select: { id: true, name: true },
+    });
+    const courses = await prisma.course.findMany({
+      where: { program },
+      select: { id: true, title: true },
+    });
+
+    const trainerIds = trainers.map((t) => t.id);
+    const courseIds = courses.map((c) => c.id);
+    const trainerNames = trainers.map((t) => t.name);
+    const courseTitles = courses.map((c) => c.title);
+
+    return {
+      isProgramManager: true,
+      program,
+      trainerIds,
+      courseIds,
+      trainerNames,
+      courseTitles,
+      trainerWhere: { id: { in: trainerIds } },
+      courseWhere: { id: { in: courseIds } },
+      feedbackWhere: {
+        OR: [
+          { trainerId: { in: trainerIds } },
+          { courseId: { in: courseIds } },
+          { trainer: { program } },
+          { course: { program } },
+        ],
+      },
+    };
+  }
+
+  // 2. Trainer Data Scope
+  if (user.role === "trainer") {
+    const scopeTrainerId = await resolveTrainerScope(user);
+    const trainerIdList = Array.isArray(scopeTrainerId) ? scopeTrainerId : (scopeTrainerId ? [scopeTrainerId] : []);
+    
+    // Find courses taught by trainer in batches
+    const batches = await prisma.batch.findMany({
+      where: { trainerId: { in: trainerIdList } },
+      select: { courseId: true },
+    });
+    const courseIds = [...new Set(batches.map((b) => b.courseId))];
+
+    return {
+      isTrainer: true,
+      trainerId: scopeTrainerId,
+      trainerIds: trainerIdList,
+      courseIds,
+      trainerWhere: { id: scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1 },
+      courseWhere: courseIds.length > 0 ? { id: { in: courseIds } } : {},
+      feedbackWhere: { trainerId: scopeTrainerId ? (Array.isArray(scopeTrainerId) ? { in: scopeTrainerId } : scopeTrainerId) : -1 },
+    };
+  }
+
+  // 3. Admin / Management (Unrestricted)
+  return { isUnrestricted: true };
 };
