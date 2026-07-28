@@ -7,6 +7,8 @@ import MonthlyRatingChart from "../../components/charts/MonthlyRatingChart";
 import RecommendedActions from "../../components/widgets/RecommendedActions";
 import api from "../../services/api";
 
+import FilterDropdownMenu from "../../components/common/FilterDropdownMenu";
+
 const statCardsConfig = [
   { key: "courseRating", label: "Course Rating", icon: "bi-award-fill", tone: "violet", suffix: "/ 5" },
   { key: "satisfactionRate", label: "Satisfaction", icon: "bi-emoji-smile-fill", tone: "green", suffix: "%" },
@@ -28,6 +30,10 @@ function CourseInsights() {
     monthlyTrend: [],
     improvementSuggestions: [],
   });
+
+  const activeFilterCount =
+    (selectedCollege !== "All Colleges" ? 1 : 0) +
+    (courseId !== "overall" ? 1 : 0);
 
   // Fetch filter options (colleges and courses)
   const loadFilterOptions = useCallback(async () => {
@@ -80,8 +86,8 @@ function CourseInsights() {
 
   return (
     <AppLayout title="Course Insights">
-      {/* Course profile + 2 cascading dropdown selectors */}
-      <div className="dashboard-row">
+      {/* Course profile + Filter dropdown button */}
+      <div className="dashboard-row" style={{ position: "relative", zIndex: 5 }}>
         <ProfileBanner
           avatarIcon="bi-mortarboard-fill"
           name={currentCourse ? currentCourse.name : "Overall Classification"}
@@ -89,20 +95,22 @@ function CourseInsights() {
           rating={metrics.courseRating}
           ratingLabel={`(${metrics.enrolledStudents || 0} students enrolled)`}
         >
-          <div className="d-flex gap-3 align-items-center flex-wrap">
+          <FilterDropdownMenu activeCount={activeFilterCount}>
             <SelectDropdown
+              label="College"
               icon="bi-building"
               value={selectedCollege}
               onChange={handleCollegeChange}
               options={availableColleges.map((col) => ({ value: col, label: col }))}
             />
             <SelectDropdown
+              label="Course"
               icon="bi-mortarboard-fill"
               value={courseId}
               onChange={setCourseId}
               options={coursesList.map((c) => ({ value: String(c.id), label: c.name }))}
             />
-          </div>
+          </FilterDropdownMenu>
         </ProfileBanner>
       </div>
 

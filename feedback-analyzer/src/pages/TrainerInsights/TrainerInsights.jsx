@@ -9,6 +9,8 @@ import MonthlyRatingChart from "../../components/charts/MonthlyRatingChart";
 import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
+import FilterDropdownMenu from "../../components/common/FilterDropdownMenu";
+
 const statCardsConfig = [
   { key: "overallRating", label: "Overall Rating", icon: "bi-star-fill", tone: "amber", suffix: "/ 5" },
   { key: "satisfaction", label: "Student Satisfaction", icon: "bi-emoji-smile-fill", tone: "green", suffix: "%" },
@@ -39,6 +41,11 @@ function TrainerInsights() {
     weaknesses: [],
     recommendations: [],
   });
+
+  const activeFilterCount =
+    (selectedCollege !== "All Colleges" ? 1 : 0) +
+    (selectedCourse !== "All Courses" ? 1 : 0) +
+    (!isTrainer && trainerId !== "overall" ? 1 : 0);
 
   // Load cascading filter options
   const loadFilterOptions = useCallback(async () => {
@@ -115,8 +122,8 @@ function TrainerInsights() {
 
   return (
     <AppLayout title="Trainer Insights">
-      {/* Trainer profile + cascading dropdown filters */}
-      <div className="dashboard-row">
+      {/* Trainer profile + Filter dropdown button */}
+      <div className="dashboard-row" style={{ position: "relative", zIndex: 5 }}>
         <ProfileBanner
           avatarIcon="bi-person-workspace"
           name={trainerName}
@@ -124,8 +131,9 @@ function TrainerInsights() {
           rating={metrics.overallRating}
           ratingLabel={`(${metrics.totalReviews} reviews)`}
         >
-          <div className="d-flex gap-2 align-items-center flex-wrap">
+          <FilterDropdownMenu activeCount={activeFilterCount}>
             <SelectDropdown
+              label="College"
               icon="bi-building"
               value={selectedCollege}
               onChange={handleCollegeChange}
@@ -133,6 +141,7 @@ function TrainerInsights() {
             />
 
             <SelectDropdown
+              label="Course"
               icon="bi-mortarboard-fill"
               value={selectedCourse}
               onChange={handleCourseChange}
@@ -144,13 +153,14 @@ function TrainerInsights() {
 
             {!isTrainer && (
               <SelectDropdown
+                label="Trainer"
                 icon="bi-person"
                 value={trainerId}
                 onChange={handleTrainerChange}
                 options={trainersList.map((t) => ({ value: String(t.id), label: t.name }))}
               />
             )}
-          </div>
+          </FilterDropdownMenu>
         </ProfileBanner>
       </div>
 

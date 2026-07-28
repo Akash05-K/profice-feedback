@@ -3583,3 +3583,138 @@ h6 {
 .profile-banner__avatar i {
   font-size: 1.25rem;
 }
+
+/* Profile banner stacking context fix */
+.profile-banner {
+  overflow: visible !important;
+  position: relative;
+  z-index: 5;
+}
+.profile-banner__actions {
+  position: relative;
+  z-index: 10;
+}
+
+/* =========================================================================
+   24. FILTER PILL BUTTON & POPOVER (Trainer & Course Insights)
+   ========================================================================= */
+.filter-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 9999px;
+  padding: 7px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.filter-pill-btn:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
+}
+.filter-pill-btn--active {
+  border-color: var(--color-primary, #2563eb);
+  background: #eff6ff;
+  color: var(--color-primary, #2563eb);
+}
+.filter-pill-btn__icon {
+  font-size: 0.92rem;
+  color: #475569;
+}
+.filter-pill-btn--active .filter-pill-btn__icon {
+  color: var(--color-primary, #2563eb);
+}
+.filter-pill-btn__text {
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+.filter-pill-btn__badge {
+  background: var(--color-primary, #2563eb);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  line-height: 1.3;
+}
+.filter-pill-btn__caret {
+  font-size: 0.72rem;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+.filter-pill-btn--open .filter-pill-btn__caret {
+  transform: rotate(180deg);
+}
+
+.filter-dropdown-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 100;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px -6px rgba(15, 23, 42, 0.18), 0 10px 15px -4px rgba(15, 23, 42, 0.08);
+  padding: 16px 18px;
+  min-width: 290px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: filterPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes filterPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.filter-dropdown-popover__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.filter-dropdown-popover__title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+}
+.filter-dropdown-popover__close {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.filter-dropdown-popover__close:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+.filter-dropdown-popover__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
