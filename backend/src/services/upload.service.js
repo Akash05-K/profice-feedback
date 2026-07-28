@@ -434,7 +434,6 @@ export const deleteUploadSession = async (sessionId, userScope = null) => {
       { course: { program: userScope.program } },
     ];
   }
-
   const deleted = await prisma.feedbackRecord.deleteMany({
     where: deleteWhere,
   });

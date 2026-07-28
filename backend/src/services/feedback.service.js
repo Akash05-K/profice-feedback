@@ -311,7 +311,7 @@ export const getFeedbackById = async (id, userScope = null) => {
     college: record.college ? record.college.name : "N/A",
     department: record.department || "Computer Applications",
     batch: record.batch ? record.batch.batchCode : "GEN-B01",
-  };
+  };  
 };
 
 export const toggleFeedbackStatus = async (id, userScope = null) => {
@@ -319,24 +319,19 @@ export const toggleFeedbackStatus = async (id, userScope = null) => {
     OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
   };
   where = applyScopeToWhere(where, userScope);
-
   const record = await prisma.feedbackRecord.findFirst({ where });
-
   if (!record) {
     const error = new Error("Feedback record not found or access denied.");
     error.statusCode = 404;
     throw error;
   }
-
   const newStatus = record.status === "archived" ? "active" : "archived";
   const updated = await prisma.feedbackRecord.update({
     where: { id: record.id },
     data: { status: newStatus },
   });
-
   return { id: updated.feedbackCode, status: updated.status };
 };
-
 export const deleteFeedbackRecord = async (id, userScope = null) => {
   let where = {
     OR: [{ id: isNaN(Number(id)) ? -1 : Number(id) }, { feedbackCode: id }],
