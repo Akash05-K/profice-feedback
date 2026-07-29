@@ -106,12 +106,17 @@ export const getActions = async (queryParams, userScope = null) => {
     id: a.actionCode,
     title: a.title,
     assignedTo: a.assignedTo ? a.assignedTo.name : "Unassigned",
+    program: a.assignedTo ? a.assignedTo.program : null,
+    assignedBy: a.assignedTo?.program
+      ? `${a.assignedTo.program} Program Manager / ACE Lead`
+      : "Program Manager / ACE Lead",
     priority: a.priority,
     dueDate: a.dueDate.toISOString().slice(0, 10),
     status: a.status === "in_progress" ? "in-progress" : a.status,
     progress: a.progressPercent,
     notes: a.notes || "",
     completedDate: a.completedAt ? a.completedAt.toISOString().slice(0, 10) : undefined,
+    createdAt: a.createdAt ? a.createdAt.toISOString().slice(0, 10) : undefined,
   }));
 
   return formatPaginatedResponse(formattedRows, total, currentPage, pageSize);
