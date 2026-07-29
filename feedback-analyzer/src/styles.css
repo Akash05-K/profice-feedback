@@ -1405,8 +1405,9 @@ h6 {
 
 .select-dropdown {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  width: 100%;
 }
 .select-dropdown__icon {
   position: absolute;
@@ -1425,6 +1426,7 @@ h6 {
   z-index: 2;
 }
 .select-dropdown__field {
+  width: 100%;
   appearance: none;
   border: 1px solid var(--color-input-border);
   background: var(--color-bg-page);
@@ -3451,6 +3453,7 @@ h6 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
 }
 .select-dropdown-field__label {
   font-size: 0.75rem;

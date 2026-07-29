@@ -12,6 +12,7 @@ export const CAP = {
   VIEW_INSIGHTS: "view:insights",
   VIEW_OWN_INSIGHTS: "view:own_insights",
   VIEW_OWN_FEEDBACK: "view:own_feedback",
+  VIEW_OWN_ACTIONS: "view:own_actions",
   VIEW_FEEDBACK: "view:feedback",
   MANAGE_FEEDBACK: "manage:feedback",
   UPLOAD_FEEDBACK: "upload:feedback",
@@ -37,7 +38,7 @@ export const ROLE_CAPABILITIES = {
     CAP.USE_AI,
     CAP.USE_AI_CHAT,
   ],
-  trainer: [CAP.VIEW_OWN_FEEDBACK, CAP.VIEW_OWN_INSIGHTS, CAP.VIEW_ACTIONS, CAP.USE_AI_CHAT],
+  trainer: [CAP.VIEW_OWN_FEEDBACK, CAP.VIEW_OWN_INSIGHTS, CAP.VIEW_OWN_ACTIONS, CAP.USE_AI_CHAT],
 };
 
 export const ROLE_LABELS = {

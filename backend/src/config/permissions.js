@@ -19,6 +19,7 @@ export const CAPABILITIES = {
   VIEW_INSIGHTS: "view:insights", // trainer/course/batch insights across the user's scope
   VIEW_OWN_INSIGHTS: "view:own_insights", // trainer viewing their own insights
   VIEW_OWN_FEEDBACK: "view:own_feedback",
+  VIEW_OWN_ACTIONS: "view:own_actions", // trainer viewing their assigned action alerts
   VIEW_FEEDBACK: "view:feedback", // read the feedback repository
   MANAGE_FEEDBACK: "manage:feedback", // archive / delete / bulk-edit feedback
   UPLOAD_FEEDBACK: "upload:feedback", // AI Analysis file upload
@@ -52,7 +53,7 @@ export const ROLE_CAPABILITIES = {
   trainer: [
     CAPABILITIES.VIEW_OWN_FEEDBACK,
     CAPABILITIES.VIEW_OWN_INSIGHTS,
-    CAPABILITIES.VIEW_ACTIONS,
+    CAPABILITIES.VIEW_OWN_ACTIONS,
     CAPABILITIES.USE_AI_CHAT,
   ],
 };

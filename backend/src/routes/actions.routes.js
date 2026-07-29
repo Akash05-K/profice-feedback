@@ -9,7 +9,7 @@ router.use(authenticate);
 
 // Action Tracker. Trainers are excluded (the list is not trainer-scoped), and
 // Management holds neither capability — "they dont use action tracker".
-const canRead = requireCapability(CAPABILITIES.VIEW_ACTIONS);
+const canRead = requireCapability(CAPABILITIES.VIEW_ACTIONS, CAPABILITIES.VIEW_OWN_ACTIONS);
 const canManage = requireCapability(CAPABILITIES.MANAGE_ACTIONS);
 
 router.get("/", canRead, actionsController.getList);
