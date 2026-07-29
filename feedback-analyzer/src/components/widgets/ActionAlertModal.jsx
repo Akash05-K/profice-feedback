@@ -162,15 +162,14 @@ function ActionAlertModal({ isOpen, onClose, user }) {
                       className="card border shadow-sm p-3"
                       style={{
                         borderRadius: "14px",
-                        borderLeft: `4px solid ${
-                          statusMeta.tone === "green"
+                        borderLeft: `4px solid ${statusMeta.tone === "green"
                             ? "#059669"
                             : statusMeta.tone === "amber"
-                            ? "#ea580c"
-                            : statusMeta.tone === "red"
-                            ? "#dc2626"
-                            : "#2563eb"
-                        }`,
+                              ? "#ea580c"
+                              : statusMeta.tone === "red"
+                                ? "#dc2626"
+                                : "#2563eb"
+                          }`,
                       }}
                     >
                       <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-2">
@@ -218,15 +217,14 @@ function ActionAlertModal({ isOpen, onClose, user }) {
                         </div>
                         <div className="progress" style={{ height: "6px", borderRadius: "999px", background: "#e2e8f0" }}>
                           <div
-                            className={`progress-bar bg-${
-                              statusMeta.tone === "green"
+                            className={`progress-bar bg-${statusMeta.tone === "green"
                                 ? "success"
                                 : statusMeta.tone === "amber"
-                                ? "warning"
-                                : statusMeta.tone === "red"
-                                ? "danger"
-                                : "primary"
-                            }`}
+                                  ? "warning"
+                                  : statusMeta.tone === "red"
+                                    ? "danger"
+                                    : "primary"
+                              }`}
                             role="progressbar"
                             style={{ width: `${item.progress || 0}%`, borderRadius: "999px" }}
                             aria-valuenow={item.progress || 0}

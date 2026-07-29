@@ -319,7 +319,7 @@ export const generateRecommendations = async ({ scopeLabel, records, sentiment }
  *   A map of row-index -> classification. Rows that couldn't be classified (AI off,
  *   API failure, empty text) are simply absent, so the caller falls back per-row.
  */
-const CLASSIFY_CHUNK = 30;
+const CLASSIFY_CHUNK = 50;
 
 export const classifyFeedbackBatch = async (items) => {
   const result = new Map();

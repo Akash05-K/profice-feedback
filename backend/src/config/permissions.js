@@ -1,17 +1,3 @@
-/**
- * Role-Based Access Control capability map.
- *
- * Capabilities are derived from the product requirements:
- *   Super Admin      -> Full access
- *   ACE Lead         -> Full access (identical to Super Admin) + user management
- *   Program Manager  -> Full access to their OWN program only (no user management)
- *   Management       -> CEO/MD. Read-only everywhere. No uploads, no action tracker.
- *   Trainer          -> Their own feedback and insights only
- *
- * Read and write are deliberately separate capabilities (VIEW_FEEDBACK vs
- * MANAGE_FEEDBACK, VIEW_ACTIONS vs MANAGE_ACTIONS, UPLOAD_FEEDBACK) so a
- * read-only role can open a module without inheriting its mutations.
- */
 
 export const CAPABILITIES = {
   VIEW_DASHBOARD: "view:dashboard",
@@ -35,13 +21,8 @@ const ALL = Object.values(CAPABILITIES);
 
 export const ROLE_CAPABILITIES = {
   super_admin: ALL,
-  // "ace lead also have every thing like super admin" — same capability set.
   ace_lead: ALL,
-  // Same module access as an admin, but the data layer restricts every query to
-  // the manager's own program (see utils/scope.js).
   program_manager: ALL.filter((cap) => cap !== CAPABILITIES.MANAGE_USERS),
-  // CEO / MD: "they only view the details, they dont uplode any feedback or
-  // dont use action tracker".
   management: [
     CAPABILITIES.VIEW_DASHBOARD,
     CAPABILITIES.VIEW_REPORTS,

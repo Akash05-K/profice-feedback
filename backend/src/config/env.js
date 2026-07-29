@@ -12,7 +12,6 @@ export const env = {
   GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-flash-lite-latest",
 };
 
-// Never sign tokens with a publicly-known fallback secret in production.
 if (env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET must be set in production.");
 }

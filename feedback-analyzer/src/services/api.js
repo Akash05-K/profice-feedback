@@ -57,6 +57,7 @@ export const api = {
     formData.append("file", file);
     return API.post("/upload/analyze", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      timeout: 180000, // 3 minutes timeout for AI processing of large sheets
     });
   },
   getUploadSessions: () => API.get("/upload/sessions"),
